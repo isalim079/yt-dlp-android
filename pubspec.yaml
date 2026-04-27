@@ -1,0 +1,71 @@
+name: yt_downloader
+description: YT Downloader — a Flutter client for YouTube downloads via yt-dlp.
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  path: ^1.9.0
+  process_run: ^0.13.0
+  path_provider: ^2.1.2
+  shared_preferences: ^2.2.2
+  file_picker: ^10.3.8
+  provider: ^6.1.2
+  dio: ^5.4.3+1
+  logger: ^2.3.0
+  permission_handler: ^11.3.1
+  flutter_riverpod: ^2.5.1
+  device_info_plus: ^10.1.0
+  package_info_plus: ^8.3.1
+  url_launcher: ^6.2.6
+  connectivity_plus: ^6.0.3
+  cached_network_image: ^3.3.1
+  receive_sharing_intent: ^1.8.0
+  window_manager: ^0.3.9
+  flutter_native_splash: ^2.4.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: 'assets/icons/yt-dlp.png'
+  min_sdk_android: 21
+  adaptive_icon_background: '#C62828'
+  adaptive_icon_foreground: 'assets/icons/yt-dlp.png'
+  web:
+    generate: false
+  windows:
+    generate: true
+    image_path: 'assets/icons/yt-dlp.png'
+    icon_size: 48
+  macos:
+    generate: false
+
+flutter_native_splash:
+  color: '#C62828'
+  color_dark: '#121212'
+  image: assets/icons/yt-dlp.png
+  android_12:
+    color: '#C62828'
+    color_dark: '#121212'
+    image: assets/icons/yt-dlp.png
+    icon_background_color: '#C62828'
+  fullscreen: false
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/bin/yt-dlp
+    - assets/bin/yt-dlp.exe
+    - assets/bin/yt-dlp_macos
+    - assets/icons/
