@@ -142,10 +142,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         formatsList != null &&
         formatsList.isEmpty &&
         metadataUrl.isNotEmpty &&
+        !playlistAsync.maybeWhen(data: (bool v) => v, orElse: () => false) &&
         !formatsAsync.isLoading &&
         !formatsAsync.hasError;
 
     final bool showDownload = selectedFormat != null && videoInfo != null;
+    final bool isPlaylist = playlistAsync.maybeWhen(
+      data: (bool v) => v,
+      orElse: () => false,
+    );
+    final bool hasPlaylistEntries = playlistInfoAsync.maybeWhen(
+      data: (PlaylistInfo? pi) => pi != null && pi.entries.isNotEmpty,
+      orElse: () => false,
+    );
 
     final List<String> errorMessages = <String>[];
     if (formatsAsync.hasError) {
@@ -342,64 +351,85 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         animateKey: metadataUrl,
                         child: VideoInfoCard(videoInfo: videoInfo),
                       ),
-                      if (playlistAsync.maybeWhen(
-                        data: (bool pl) => pl,
-                        orElse: () => false,
-                      )) ...<Widget>[
-                        const SizedBox(height: AppDimensions.spaceMd),
-                        Material(
-                          color: c.primary.withValues(alpha: 0.1),
+                    ],
+                    if (isPlaylist) ...<Widget>[
+                      const SizedBox(height: AppDimensions.spacingLg),
+                      Material(
+                        color: c.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(
+                          AppDimensions.radiusMd,
+                        ),
+                        child: InkWell(
+                          onTap: hasPlaylistEntries
+                              ? () => homeCtrl.startPlaylistDownloadsFromHome(
+                                    ref: ref,
+                                    context: context,
+                                  )
+                              : null,
                           borderRadius: BorderRadius.circular(
                             AppDimensions.radiusMd,
                           ),
-                          child: InkWell(
-                            onTap: () =>
-                                homeCtrl.startPlaylistDownloadsFromHome(
-                                  ref: ref,
-                                  context: context,
-                                ),
-                            borderRadius: BorderRadius.circular(
-                              AppDimensions.radiusMd,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppDimensions.paddingMd,
+                              vertical: AppDimensions.spaceSm,
                             ),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: AppDimensions.paddingMd,
-                                vertical: AppDimensions.spaceSm,
-                              ),
-                              child: Row(
-                                children: <Widget>[
-                                  Icon(
-                                    Icons.playlist_play_rounded,
-                                    color: c.primary,
-                                    size: AppDimensions.iconMd,
-                                  ),
-                                  const SizedBox(width: AppDimensions.spaceSm),
-                                  Expanded(
-                                    child: Text(
-                                      playlistInfoAsync.maybeWhen(
-                                        data: (PlaylistInfo? pi) => pi != null
-                                            ? AppStrings.playlistVideosLine(
-                                                pi.count,
-                                              )
-                                            : AppStrings.playlistBanner,
-                                        orElse: () => AppStrings.playlistBanner,
-                                      ),
-                                      style: textTheme.bodyMedium?.copyWith(
-                                        color: c.primary,
-                                        fontWeight: FontWeight.w500,
-                                      ),
+                            child: Row(
+                              children: <Widget>[
+                                Icon(
+                                  Icons.playlist_play_rounded,
+                                  color: c.primary,
+                                  size: AppDimensions.iconMd,
+                                ),
+                                const SizedBox(width: AppDimensions.spaceSm),
+                                Expanded(
+                                  child: Text(
+                                    playlistInfoAsync.maybeWhen(
+                                      data: (PlaylistInfo? pi) => pi != null
+                                          ? AppStrings.playlistVideosLine(
+                                              pi.count,
+                                            )
+                                          : AppStrings.playlistBanner,
+                                      loading: () => AppStrings.loading,
+                                      orElse: () => AppStrings.playlistBanner,
+                                    ),
+                                    style: textTheme.bodyMedium?.copyWith(
+                                      color: c.primary,
+                                      fontWeight: FontWeight.w500,
                                     ),
                                   ),
+                                ),
+                                if (!hasPlaylistEntries)
+                                  SizedBox(
+                                    width: AppDimensions.iconSm,
+                                    height: AppDimensions.iconSm,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: c.primary,
+                                    ),
+                                  )
+                                else
                                   Icon(
                                     Icons.chevron_right_rounded,
                                     color: c.primary,
                                   ),
-                                ],
-                              ),
+                              ],
                             ),
                           ),
                         ),
-                      ],
+                      ),
+                      const SizedBox(height: AppDimensions.spaceMd),
+                      AppButton(
+                        label: AppStrings.downloadButton,
+                        icon: const Icon(Icons.download_rounded),
+                        isLoading: !hasPlaylistEntries,
+                        onPressed: hasPlaylistEntries
+                            ? () => homeCtrl.startPlaylistDownloadsFromHome(
+                                  ref: ref,
+                                  context: context,
+                                )
+                            : null,
+                      ),
                     ],
                     if (showFormatSelector) ...<Widget>[
                       const SizedBox(height: AppDimensions.spacingLg),

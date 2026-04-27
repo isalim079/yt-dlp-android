@@ -26,6 +26,7 @@ import 'ytdlp_platform_channel.dart';
 class DownloadManager extends Notifier<List<DownloadItem>> {
   static const int _defaultMaxConcurrentDownloads = 3;
   static const String _playedKey = 'played_items';
+  static const String _queueKey = 'download_queue_v1';
 
   static final RegExp _progressLine = RegExp(
     r'\[download\]\s+([\d.]+)%\s+of\s+([\d.]+\S+)\s+at\s+([\d.]+\S+)\s+ETA\s+(\S+)',
@@ -52,6 +53,7 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
 
   @override
   List<DownloadItem> build() {
+    unawaited(_loadQueueState());
     unawaited(_loadPlayedState());
     ref.onDispose(() {
       _disposeProcesses();
@@ -461,7 +463,7 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
         if (_activeCount >= _maxConcurrentDownloads) {
           break;
         }
-        final DownloadItem? next = _firstQueued();
+        final DownloadItem? next = _firstSpawnableQueued();
         if (next == null) {
           break;
         }
@@ -478,10 +480,46 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
     });
   }
 
-  DownloadItem? _firstQueued() {
+  DownloadItem? _firstSpawnableQueued() {
+    final String? activePlaylistGroupId = _activePlaylistGroupId();
+    if (activePlaylistGroupId != null) {
+      for (final DownloadItem e in _queue) {
+        if (e.status != DownloadStatus.queued) {
+          continue;
+        }
+        if (e.isPlaylist && e.playlistGroupId == activePlaylistGroupId) {
+          return e;
+        }
+      }
+      return null;
+    }
+
+    DownloadItem? firstPlaylistQueued;
+    for (final DownloadItem e in _queue) {
+      if (e.status == DownloadStatus.queued && e.isPlaylist) {
+        firstPlaylistQueued = e;
+        break;
+      }
+    }
+    if (firstPlaylistQueued != null) {
+      if (_activeCount > 0) {
+        return null;
+      }
+      return firstPlaylistQueued;
+    }
+
     for (final DownloadItem e in _queue) {
       if (e.status == DownloadStatus.queued) {
         return e;
+      }
+    }
+    return null;
+  }
+
+  String? _activePlaylistGroupId() {
+    for (final DownloadItem item in _queue) {
+      if (item.status == DownloadStatus.downloading && item.isPlaylist) {
+        return item.playlistGroupId;
       }
     }
     return null;
@@ -549,6 +587,7 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
 
   void _emit() {
     state = List<DownloadItem>.unmodifiable(_queue);
+    unawaited(_saveQueueState());
   }
 
   /// Marks a completed item as opened by the user.
@@ -757,5 +796,99 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
     if (changed) {
       _emit();
     }
+  }
+
+  Future<void> _saveQueueState() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final List<Map<String, dynamic>> data = _queue
+        .map((DownloadItem item) => <String, dynamic>{
+              'id': item.id,
+              'url': item.url,
+              'title': item.title,
+              'formatId': item.selectedFormat.formatId,
+              'formatExt': item.selectedFormat.extension,
+              'formatLabel': item.selectedFormat.displayLabel,
+              'outputPath': item.outputPath,
+              'status': item.status.name,
+              'errorMessage': item.errorMessage,
+              'isPlaylist': item.isPlaylist,
+              'playlistIndex': item.playlistIndex,
+              'playlistTotal': item.playlistTotal,
+              'thumbnailUrl': item.thumbnailUrl,
+              'playlistGroupId': item.playlistGroupId,
+              'playlistTitle': item.playlistTitle,
+              'isPlayed': item.isPlayed,
+              'addedAtMs': item.addedAt.millisecondsSinceEpoch,
+            })
+        .toList(growable: false);
+    await prefs.setString(_queueKey, jsonEncode(data));
+  }
+
+  Future<void> _loadQueueState() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final String? raw = prefs.getString(_queueKey);
+    if (raw == null || raw.isEmpty) {
+      return;
+    }
+    try {
+      final Object? decoded = jsonDecode(raw);
+      if (decoded is! List<dynamic>) {
+        return;
+      }
+      _queue.clear();
+      for (final dynamic entry in decoded) {
+        if (entry is! Map<dynamic, dynamic>) {
+          continue;
+        }
+        final Map<dynamic, dynamic> map = entry;
+        final DownloadStatus parsedStatus = _parseStatus(
+          map['status']?.toString() ?? DownloadStatus.queued.name,
+        );
+        final DownloadStatus status = parsedStatus == DownloadStatus.downloading
+            ? DownloadStatus.failed
+            : parsedStatus;
+        final String? resumedError = parsedStatus == DownloadStatus.downloading
+            ? 'Interrupted. Please retry.'
+            : map['errorMessage']?.toString();
+
+        final DownloadItem item = DownloadItem(
+          id: map['id']?.toString() ?? '',
+          url: map['url']?.toString() ?? '',
+          title: map['title']?.toString() ?? '',
+          selectedFormat: VideoFormat(
+            formatId: map['formatId']?.toString() ?? '',
+            extension: map['formatExt']?.toString() ?? '',
+            displayLabel: map['formatLabel']?.toString() ?? '',
+          ),
+          outputPath: map['outputPath']?.toString() ?? '',
+          status: status,
+          addedAt: DateTime.fromMillisecondsSinceEpoch(
+            (map['addedAtMs'] as num?)?.toInt() ??
+                DateTime.now().millisecondsSinceEpoch,
+          ),
+          errorMessage: resumedError,
+          isPlaylist: (map['isPlaylist'] as bool?) ?? false,
+          playlistIndex: (map['playlistIndex'] as num?)?.toInt(),
+          playlistTotal: (map['playlistTotal'] as num?)?.toInt(),
+          thumbnailUrl: map['thumbnailUrl']?.toString(),
+          playlistGroupId: map['playlistGroupId']?.toString(),
+          playlistTitle: map['playlistTitle']?.toString(),
+          isPlayed: (map['isPlayed'] as bool?) ?? false,
+        );
+        _queue.add(item);
+      }
+      _emit();
+    } on Object catch (error, stackTrace) {
+      AppLogger.w('Failed to restore queue state: $error\n$stackTrace');
+    }
+  }
+
+  DownloadStatus _parseStatus(String value) {
+    for (final DownloadStatus status in DownloadStatus.values) {
+      if (status.name == value) {
+        return status;
+      }
+    }
+    return DownloadStatus.queued;
   }
 }

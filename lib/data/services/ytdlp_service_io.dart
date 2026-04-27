@@ -104,7 +104,7 @@ class YtdlpService {
       rethrow;
     } on Object catch (error, stackTrace) {
       AppLogger.e('fetchFormats failed', error, stackTrace);
-      throw YtdlpException(AppStrings.errorUnknown, originalError: error);
+      throw _mapToYtdlpException(error);
     }
   }
 
@@ -124,7 +124,7 @@ class YtdlpService {
       rethrow;
     } on Object catch (error, stackTrace) {
       AppLogger.e('fetchVideoInfo failed', error, stackTrace);
-      throw YtdlpException(AppStrings.errorUnknown, originalError: error);
+      throw _mapToYtdlpException(error);
     }
   }
 
@@ -202,7 +202,7 @@ class YtdlpService {
       rethrow;
     } on Object catch (error, stackTrace) {
       AppLogger.e('fetchPlaylistInfo failed', error, stackTrace);
-      throw YtdlpException(AppStrings.errorUnknown, originalError: error);
+      throw _mapToYtdlpException(error);
     }
   }
 
@@ -310,6 +310,26 @@ class YtdlpService {
     _metadataJsonUrl = url;
     _metadataJsonBody = body;
     return body;
+  }
+
+  YtdlpException _mapToYtdlpException(Object error) {
+    final String raw = error.toString();
+    final String lower = raw.toLowerCase();
+
+    if (lower.contains('video unavailable') ||
+        lower.contains('no longer available') ||
+        lower.contains('copyright claim')) {
+      final String message = lower.contains('\nerror: [youtube]')
+          ? AppStrings.errorPlaylistUnavailableItems
+          : AppStrings.errorVideoUnavailable;
+      return YtdlpException(message, originalError: error);
+    }
+
+    if (lower.contains('http error 403') || lower.contains('forbidden')) {
+      return YtdlpException(AppStrings.errorForbidden, originalError: error);
+    }
+
+    return YtdlpException(AppStrings.errorUnknown, originalError: error);
   }
 }
 

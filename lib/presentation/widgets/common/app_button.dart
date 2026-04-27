@@ -51,15 +51,16 @@ class _AppButtonState extends State<AppButton> {
     final bool disabled = widget.onPressed == null || widget.isLoading;
     final BorderRadius radius = BorderRadius.circular(AppDimensions.radiusMd);
     final OutlinedBorder shape = RoundedRectangleBorder(borderRadius: radius);
+    final Color contentColor = widget.outlined
+        ? (disabled && !widget.isLoading ? c.textSecondary : c.primary)
+        : (disabled && !widget.isLoading ? c.textSecondary : c.onPrimary);
 
     final Widget progress = SizedBox(
       height: AppDimensions.iconMd,
       width: AppDimensions.iconMd,
       child: CircularProgressIndicator.adaptive(
         strokeWidth: 2,
-        valueColor: AlwaysStoppedAnimation<Color>(
-          widget.outlined ? c.primary : c.onPrimary,
-        ),
+        valueColor: AlwaysStoppedAnimation<Color>(contentColor),
       ),
     );
 
@@ -71,7 +72,7 @@ class _AppButtonState extends State<AppButton> {
           IconTheme(
             data: IconThemeData(
               size: AppDimensions.iconMd,
-              color: widget.outlined ? c.primary : c.onPrimary,
+              color: contentColor,
             ),
             child: widget.icon!,
           ),
@@ -84,20 +85,29 @@ class _AppButtonState extends State<AppButton> {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontWeight: FontWeight.w600,
-              color: widget.outlined
-                  ? (disabled && !widget.isLoading
-                      ? c.textSecondary
-                      : c.primary)
-                  : (disabled && !widget.isLoading
-                      ? c.textSecondary
-                      : c.onPrimary),
+              color: contentColor,
             ),
           ),
         ),
       ],
     );
 
-    final Widget child = widget.isLoading ? progress : labelRow;
+    final Widget child = widget.isLoading
+        ? Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              progress,
+              const SizedBox(width: AppDimensions.spaceSm),
+              Text(
+                widget.label,
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: contentColor,
+                ),
+              ),
+            ],
+          )
+        : labelRow;
 
     final Widget button;
     if (widget.outlined) {

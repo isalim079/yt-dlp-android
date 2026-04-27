@@ -36,6 +36,8 @@ class DownloadCard extends StatelessWidget {
     final TextTheme textTheme = Theme.of(context).textTheme;
     final double percent = item.progress?.percent ?? 0;
     final bool indeterminate = percent <= 0;
+    final bool showMetaLine =
+        !indeterminate && item.progress?.isMerging != true;
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 6),
@@ -73,11 +75,33 @@ class DownloadCard extends StatelessWidget {
                         color: c.textPrimary,
                       ),
                     ),
+                    if (item.status == DownloadStatus.failed) ...<Widget>[
+                      const SizedBox(height: AppDimensions.spaceXs),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: IconButton(
+                          tooltip: AppStrings.retryDownload,
+                          onPressed: () => manager.retryDownload(item.id),
+                          icon: Icon(
+                            Icons.refresh_rounded,
+                            size: AppDimensions.iconMd,
+                            color: c.primary,
+                          ),
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 28,
+                            minHeight: 28,
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: AppDimensions.spaceXs),
-                    Row(
+                    Wrap(
+                      spacing: AppDimensions.spaceSm,
+                      runSpacing: AppDimensions.spaceXs,
                       children: <Widget>[
                         _FormatBadge(label: item.selectedFormat.displayLabel),
-                        const SizedBox(width: AppDimensions.spaceSm),
                         _StatusBadge(status: item.status),
                       ],
                     ),
@@ -96,7 +120,7 @@ class DownloadCard extends StatelessWidget {
             Row(
               children: <Widget>[
                 Text(
-                  item.progress?.percentLabel ?? AppStrings.statusPreparing,
+                  _progressLabel(item, indeterminate),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: textTheme.bodySmall?.copyWith(
@@ -104,18 +128,21 @@ class DownloadCard extends StatelessWidget {
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-                const Spacer(),
+                const SizedBox(width: AppDimensions.spaceSm),
                 if (item.progress?.isMerging == true)
                   const _PulsingChip(label: AppStrings.statusProcessing)
-                else
-                  Text(
-                    '${item.progress?.speed ?? '--'}'
-                    '${AppStrings.formatLabelSeparator}'
-                    'ETA ${item.progress?.eta ?? '--'}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: textTheme.bodySmall?.copyWith(
-                      color: c.textSecondary,
+                else if (showMetaLine)
+                  Expanded(
+                    child: Text(
+                      '${item.progress?.speed ?? '--'}'
+                      '${AppStrings.formatLabelSeparator}'
+                      'ETA ${item.progress?.eta ?? '--'}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.right,
+                      style: textTheme.bodySmall?.copyWith(
+                        color: c.textSecondary,
+                      ),
                     ),
                   ),
               ],
@@ -249,6 +276,16 @@ class DownloadCard extends StatelessWidget {
     );
   }
 
+  String _progressLabel(DownloadItem item, bool indeterminate) {
+    if (item.progress?.isMerging == true) {
+      return AppStrings.statusProcessing;
+    }
+    if (indeterminate) {
+      return AppStrings.statusPreparing;
+    }
+    return item.progress?.percentLabel ?? AppStrings.statusPreparing;
+  }
+
   Future<void> _showPlayerPicker(
     BuildContext context,
     DownloadItem item,
@@ -316,7 +353,14 @@ class DownloadCard extends StatelessWidget {
                   const SizedBox(width: AppDimensions.spaceSm),
                   Expanded(
                     child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: c.error),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: c.error,
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: c.error.withValues(alpha: 0.5),
+                        disabledForegroundColor: Colors.white.withValues(
+                          alpha: 0.9,
+                        ),
+                      ),
                       onPressed: () {
                         Navigator.of(context).pop();
                         manager.cancelDownload(item.id);
@@ -348,8 +392,6 @@ class _StatusBadge extends StatelessWidget {
     final Color bg;
     final Color fg;
     final String label;
-    final bool spin = status == DownloadStatus.downloading;
-
     switch (status) {
       case DownloadStatus.downloading:
         bg = c.primaryLight;
@@ -381,14 +423,7 @@ class _StatusBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          if (spin)
-            SizedBox(
-              width: AppDimensions.iconSm,
-              height: AppDimensions.iconSm,
-              child: CircularProgressIndicator(strokeWidth: 2, color: fg),
-            )
-          else
-            Icon(_iconFor(status), size: AppDimensions.iconSm, color: fg),
+          Icon(_iconFor(status), size: AppDimensions.iconSm, color: fg),
           const SizedBox(width: AppDimensions.spaceXs),
           Text(
             label,

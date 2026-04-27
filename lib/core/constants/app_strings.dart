@@ -91,6 +91,7 @@ abstract final class AppStrings {
   static const String sectionQueued = 'Queued';
   static const String sectionActive = 'Active';
   static const String sectionDone = 'Done';
+  static const String sectionDownloaded = 'Downloaded';
   static const String labelFormatSelector = 'Format';
   static const String labelProgress = 'Progress';
 
@@ -202,6 +203,12 @@ abstract final class AppStrings {
       'Request timed out. Check your connection.';
   static const String errorNoFormats =
       'No downloadable formats were found for this video.';
+  static const String errorVideoUnavailable =
+      'This video is unavailable or restricted.';
+  static const String errorPlaylistUnavailableItems =
+      'Some playlist videos are unavailable. Please try another playlist.';
+  static const String errorForbidden =
+      'Access denied by source server (403). Try another format/video.';
   static const String errorProcessFailed =
       'The downloader reported an error while reading this link.';
   static const String errorUnknown =
@@ -275,6 +282,15 @@ abstract final class AppStrings {
   static const String playlistOptionTitle = 'Download options';
   static const String playlistAllVideos = 'All videos';
   static const String playlistAudioOnly = 'Audio only';
+  static const String downloadedFilesTitle = 'Downloaded Files';
+  static const String noDownloadedFiles = 'No downloaded files found yet';
+  static const String refreshList = 'Refresh';
+  static const String deleteFileTitle = 'Delete file?';
+  static const String deleteFileBody =
+      'This will permanently remove the file from your device.';
+  static const String deleteFileConfirm = 'Delete';
+  static const String deleteFileSuccess = 'File deleted';
+  static const String deleteFileFailed = 'Could not delete file';
 
   // Misc
   static const String loading = 'Loading…';

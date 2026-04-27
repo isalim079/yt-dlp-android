@@ -11,12 +11,13 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimensions.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/app_ui_colors.dart';
-import '../../../data/providers/app_navigation_providers.dart';
 import '../../../data/models/download_item.dart';
+import '../../../data/providers/app_navigation_providers.dart';
 import '../../../data/providers/download_providers.dart';
 import '../../../data/services/download_manager.dart';
 import '../../widgets/download/download_card.dart';
 import '../settings/settings_screen.dart';
+import 'downloaded_files_screen.dart';
 
 /// Lists active and completed downloads with aggregate status.
 class DownloadScreen extends ConsumerStatefulWidget {
@@ -145,11 +146,6 @@ class _DownloadScreenState extends ConsumerState<DownloadScreen> {
           ).textTheme.titleLarge?.copyWith(color: c.textPrimary),
         ),
         actions: <Widget>[
-          if (completed.isNotEmpty)
-            TextButton(
-              onPressed: manager.clearCompleted,
-              child: Text(AppStrings.clearCompleted),
-            ),
           IconButton(
             tooltip: AppStrings.settingsScreenTitle,
             icon: Icon(Icons.settings_outlined, color: c.textPrimary),
@@ -163,52 +159,54 @@ class _DownloadScreenState extends ConsumerState<DownloadScreen> {
           ),
         ],
       ),
-      body: queue.isEmpty
-          ? _EmptyDownloadsView(
-              onGoHome: () => ref.read(tabIndexProvider.notifier).state = 0,
-            )
-          : Column(
+      body: Column(
+        children: <Widget>[
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppDimensions.paddingMd,
+              vertical: AppDimensions.spaceSm,
+            ),
+            color: c.surface,
+            child: Row(
               children: <Widget>[
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppDimensions.paddingMd,
-                    vertical: AppDimensions.spaceSm,
-                  ),
-                  color: c.surface,
-                  child: Row(
-                    children: <Widget>[
-                      _StatBadge(
-                        count: active.length,
-                        label: AppStrings.sectionActive,
-                        color: c.primary,
-                      ),
-                      const SizedBox(width: AppDimensions.spaceSm),
-                      _StatBadge(
-                        count: completed.length,
-                        label: AppStrings.sectionDone,
-                        color: c.success,
-                      ),
-                      const SizedBox(width: AppDimensions.spaceSm),
-                      _StatBadge(
-                        count: failed.length,
-                        label: AppStrings.sectionFailed,
-                        color: c.error,
-                      ),
-                      const Spacer(),
-                      if (completed.isNotEmpty)
-                        TextButton.icon(
-                          onPressed: manager.clearCompleted,
-                          icon: const Icon(
-                            Icons.delete_sweep_rounded,
-                            size: 16,
-                          ),
-                          label: const Text(AppStrings.clearDone),
-                        ),
-                    ],
-                  ),
+                _StatBadge(
+                  count: active.length,
+                  label: AppStrings.sectionActive,
+                  color: c.primary,
                 ),
-                Expanded(
-                  child: ListView(
+                const SizedBox(width: AppDimensions.spaceSm),
+                _StatBadge(
+                  count: completed.length,
+                  label: AppStrings.sectionDone,
+                  color: c.success,
+                ),
+                const SizedBox(width: AppDimensions.spaceSm),
+                _StatBadge(
+                  count: failed.length,
+                  label: AppStrings.sectionFailed,
+                  color: c.error,
+                ),
+                const Spacer(),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const DownloadedFilesScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.folder_open_rounded, size: 16),
+                  label: const Text(AppStrings.sectionDownloaded),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: queue.isEmpty
+                ? _EmptyDownloadsView(
+                    onGoHome: () => ref.read(tabIndexProvider.notifier).state = 0,
+                  )
+                : ListView(
                     padding: const EdgeInsets.symmetric(
                       horizontal: AppDimensions.paddingScreenHorizontal,
                       vertical: AppDimensions.paddingScreenVertical,
@@ -255,9 +253,9 @@ class _DownloadScreenState extends ConsumerState<DownloadScreen> {
                       ],
                     ],
                   ),
-                ),
-              ],
-            ),
+          ),
+        ],
+      ),
     );
   }
 }

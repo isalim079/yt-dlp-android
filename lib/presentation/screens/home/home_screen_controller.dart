@@ -59,6 +59,12 @@ class HomeScreenState {
 
 /// Coordinates search, clipboard, and persisted download path.
 class HomeScreenController extends AutoDisposeNotifier<HomeScreenState> {
+  static const VideoFormat _playlistDefaultFormat = VideoFormat(
+    formatId: 'bv*+ba/b',
+    extension: 'mp4',
+    displayLabel: 'Best available (auto)',
+  );
+
   @override
   HomeScreenState build() {
     return const HomeScreenState();
@@ -188,13 +194,8 @@ class HomeScreenController extends AutoDisposeNotifier<HomeScreenState> {
     required WidgetRef ref,
     required BuildContext context,
   }) async {
-    final VideoFormat? format = ref.read(selectedFormatProvider);
-    if (format == null) {
-      if (context.mounted) {
-        AppSnackbar.showError(context, AppStrings.selectFormat);
-      }
-      return;
-    }
+    final VideoFormat format =
+        ref.read(selectedFormatProvider) ?? _playlistDefaultFormat;
     final String outputPath = await _resolveAndValidateOutputPath(ref);
     final PlaylistInfo? info = ref.read(playlistInfoProvider).valueOrNull;
     if (info == null || info.entries.isEmpty) {

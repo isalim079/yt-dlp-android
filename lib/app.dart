@@ -24,6 +24,7 @@ class YtDownloaderApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: AppStrings.appName,
       theme: AppTheme.light,
       themeMode: ThemeMode.light,
@@ -52,6 +53,7 @@ class _MainShell extends ConsumerWidget {
     final int activeCount = ref.watch(activeDownloadCountProvider);
 
     return Scaffold(
+      
       body: IndexedStack(
         index: tab,
         sizing: StackFit.expand,

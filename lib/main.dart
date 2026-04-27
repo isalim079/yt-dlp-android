@@ -9,7 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app_bootstrap.dart';
 import 'core/utils/desktop_window_stub.dart'
-    if (dart.library.io) 'core/utils/desktop_window_io.dart' as desktop_window;
+if (dart.library.io) 'core/utils/desktop_window_io.dart' as desktop_window;
 import 'core/utils/logger.dart';
 import 'core/widgets/error_boundary.dart';
 

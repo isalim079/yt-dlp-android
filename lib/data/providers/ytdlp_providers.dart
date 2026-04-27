@@ -43,6 +43,10 @@ final formatsProvider = FutureProvider.autoDispose<List<VideoFormat>>((
   if (url.isEmpty) {
     return <VideoFormat>[];
   }
+  final bool isPlaylist = await ref.watch(isPlaylistProvider.future);
+  if (isPlaylist) {
+    return <VideoFormat>[];
+  }
   final YtdlpService service = ref.watch(ytdlpServiceProvider);
   return service.fetchFormats(url);
 });
@@ -53,6 +57,10 @@ final videoInfoProvider = FutureProvider.autoDispose<VideoInfo?>((
 ) async {
   final String url = ref.watch(metadataRequestUrlProvider);
   if (url.isEmpty) {
+    return null;
+  }
+  final bool isPlaylist = await ref.watch(isPlaylistProvider.future);
+  if (isPlaylist) {
     return null;
   }
   final YtdlpService service = ref.watch(ytdlpServiceProvider);
