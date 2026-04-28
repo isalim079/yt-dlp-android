@@ -18,6 +18,7 @@
         android:label="yt-dlp"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:extractNativeLibs="true"
         android:enableOnBackInvokedCallback="true"
         android:requestLegacyExternalStorage="true">
         <activity

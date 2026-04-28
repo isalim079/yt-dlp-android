@@ -26,15 +26,22 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
+        ndk {
+            abiFilters += setOf("arm64-v8a")
+        }
     }
 
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("debug")
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // Keep release stable for native/reflection-heavy youtubedl stack.
+            // R8 obfuscation causes startup crash in ZipUtils on launch.
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
+                // Non-optimize rules: proguard-android-optimize can break JNI/reflection
+                // edge cases (e.g. youtubedl-android) that only show up in release.
+                getDefaultProguardFile("proguard-android.txt"),
                 "proguard-rules.pro",
             )
         }
