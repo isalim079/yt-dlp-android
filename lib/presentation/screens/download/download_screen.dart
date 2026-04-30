@@ -221,7 +221,9 @@ class _DownloadScreenState extends ConsumerState<DownloadScreen> {
                         ...activeOrQueued.map(
                           (DownloadItem e) => _AnimatedDownloadRow(
                             key: ValueKey<String>(e.id),
-                            child: DownloadCard(item: e, manager: manager),
+                            child: RepaintBoundary(
+                              child: DownloadCard(itemId: e.id, manager: manager),
+                            ),
                           ),
                         ),
                       ],
@@ -234,7 +236,9 @@ class _DownloadScreenState extends ConsumerState<DownloadScreen> {
                         ...completed.map(
                           (DownloadItem e) => _AnimatedDownloadRow(
                             key: ValueKey<String>(e.id),
-                            child: DownloadCard(item: e, manager: manager),
+                            child: RepaintBoundary(
+                              child: DownloadCard(itemId: e.id, manager: manager),
+                            ),
                           ),
                         ),
                       ],
@@ -247,7 +251,9 @@ class _DownloadScreenState extends ConsumerState<DownloadScreen> {
                         ...failed.map(
                           (DownloadItem e) => _AnimatedDownloadRow(
                             key: ValueKey<String>(e.id),
-                            child: DownloadCard(item: e, manager: manager),
+                            child: RepaintBoundary(
+                              child: DownloadCard(itemId: e.id, manager: manager),
+                            ),
                           ),
                         ),
                       ],

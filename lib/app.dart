@@ -44,6 +44,46 @@ class YtDownloaderApp extends ConsumerWidget {
   }
 }
 
+class _LazyIndexedStack extends StatefulWidget {
+  const _LazyIndexedStack({
+    required this.index,
+    required this.children,
+  });
+
+  final int index;
+  final List<Widget> children;
+
+  @override
+  State<_LazyIndexedStack> createState() => _LazyIndexedStackState();
+}
+
+class _LazyIndexedStackState extends State<_LazyIndexedStack> {
+  late final List<bool> _activated = List.generate(
+    widget.children.length,
+    (i) => i == 0, // Home is always active
+  );
+
+  @override
+  void didUpdateWidget(_LazyIndexedStack oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.index != oldWidget.index) {
+      setState(() => _activated[widget.index] = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IndexedStack(
+      index: widget.index,
+      sizing: StackFit.expand,
+      children: List.generate(
+        widget.children.length,
+        (i) => _activated[i] ? widget.children[i] : const SizedBox.shrink(),
+      ),
+    );
+  }
+}
+
 class _MainShell extends ConsumerWidget {
   const _MainShell();
 
@@ -53,10 +93,8 @@ class _MainShell extends ConsumerWidget {
     final int activeCount = ref.watch(activeDownloadCountProvider);
 
     return Scaffold(
-      
-      body: IndexedStack(
+      body: _LazyIndexedStack(
         index: tab,
-        sizing: StackFit.expand,
         children: const <Widget>[
           HomeScreen(),
           DownloadScreen(),

@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -15,23 +16,27 @@ import '../../../core/theme/app_ui_colors.dart';
 import '../../../core/utils/open_folder.dart';
 import '../../../core/utils/logger.dart';
 import '../../../data/models/download_item.dart';
+import '../../../data/providers/download_providers.dart';
 import '../../../data/services/download_manager.dart';
 import '../common/app_progress_bar.dart';
 import 'circular_progress_ring.dart';
 
 /// One row in the downloads list with metadata and controls.
-class DownloadCard extends StatelessWidget {
-  /// Creates a card for [item] bound to [manager].
-  const DownloadCard({super.key, required this.item, required this.manager});
+class DownloadCard extends ConsumerWidget {
+  /// Creates a card for [itemId] bound to [manager].
+  const DownloadCard({super.key, required this.itemId, required this.manager});
 
-  /// Job shown in this card.
-  final DownloadItem item;
+  /// Job ID shown in this card.
+  final String itemId;
 
   /// Coordinator invoked by action buttons.
   final DownloadManager manager;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final DownloadItem? item = ref.watch(itemProvider(itemId));
+    if (item == null) return const SizedBox.shrink();
+
     final AppUiColors c = AppColors.of(context);
     final TextTheme textTheme = Theme.of(context).textTheme;
     final double percent = item.progress?.percent ?? 0;
@@ -112,9 +117,11 @@ class DownloadCard extends StatelessWidget {
           ),
           if (item.status == DownloadStatus.downloading) ...<Widget>[
             const SizedBox(height: AppDimensions.spaceSm),
-            AppProgressBar(
-              value: item.progress?.percent ?? 0,
-              isIndeterminate: indeterminate,
+            RepaintBoundary(
+              child: AppProgressBar(
+                value: item.progress?.percent ?? 0,
+                isIndeterminate: indeterminate,
+              ),
             ),
             const SizedBox(height: AppDimensions.spaceXs),
             Row(
@@ -363,7 +370,7 @@ class DownloadCard extends StatelessWidget {
                       ),
                       onPressed: () {
                         Navigator.of(context).pop();
-                        manager.cancelDownload(item.id);
+                        manager.cancelDownload(itemId);
                         HapticFeedback.lightImpact();
                       },
                       child: const Text(AppStrings.cancelDownloadConfirm),
@@ -572,6 +579,11 @@ class _ThumbnailPreview extends StatelessWidget {
                   width: AppDimensions.thumbnailWidth,
                   height: AppDimensions.thumbnailHeight,
                   fit: BoxFit.cover,
+                  memCacheWidth: (AppDimensions.thumbnailWidth * 2).toInt(),
+                  memCacheHeight: (AppDimensions.thumbnailHeight * 2).toInt(),
+                  maxWidthDiskCache: 384,
+                  maxHeightDiskCache: 256,
+                  fadeInDuration: const Duration(milliseconds: 150),
                   placeholder: (_, _) => Container(
                     width: AppDimensions.thumbnailWidth,
                     height: AppDimensions.thumbnailHeight,

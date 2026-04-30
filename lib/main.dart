@@ -27,6 +27,9 @@ Future<void> main() async {
 
   await desktop_window.configureDesktopWindow();
 
+  PaintingBinding.instance.imageCache.maximumSize = 50;
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 50 * 1024 * 1024; // 50MB max
+
   runApp(
     const ErrorBoundary(
       child: ProviderScope(

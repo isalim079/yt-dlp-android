@@ -45,11 +45,17 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channel).setMethodCallHandler { call, result ->
             when (call.method) {
                 "initialize" -> {
-                    try {
-                        YoutubeDL.getInstance().init(this)
-                        result.success("ok")
-                    } catch (e: Exception) {
-                        result.error("INIT_ERROR", e.message, null)
+                    scope.launch {
+                        try {
+                            YoutubeDL.getInstance().init(this@MainActivity)
+                            withContext(Dispatchers.Main) {
+                                result.success("ok")
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                result.error("INIT_ERROR", e.message, null)
+                            }
+                        }
                     }
                 }
 

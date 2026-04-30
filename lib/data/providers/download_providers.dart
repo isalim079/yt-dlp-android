@@ -18,6 +18,14 @@ final Provider<List<DownloadItem>> downloadQueueProvider =
       return ref.watch(downloadManagerProvider);
     });
 
+/// Individual item provider to prevent full list rebuilds
+final itemProvider = Provider.family
+    .autoDispose<DownloadItem?, String>((Ref ref, String id) {
+  return ref.watch(downloadManagerProvider)
+      .cast<DownloadItem?>()
+      .firstWhere((DownloadItem? i) => i?.id == id, orElse: () => null);
+});
+
 /// Jobs currently downloading bytes.
 final Provider<List<DownloadItem>> activeDownloadsProvider =
     Provider<List<DownloadItem>>((Ref ref) {

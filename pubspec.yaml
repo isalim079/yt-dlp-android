@@ -16,7 +16,6 @@ dependencies:
   shared_preferences: ^2.2.2
   file_picker: ^10.3.8
   provider: ^6.1.2
-  dio: ^5.4.3+1
   logger: ^2.3.0
   permission_handler: ^11.3.1
   flutter_riverpod: ^2.5.1
@@ -26,7 +25,6 @@ dependencies:
   connectivity_plus: ^6.0.3
   cached_network_image: ^3.3.1
   receive_sharing_intent: ^1.8.0
-  window_manager: ^0.3.9
   flutter_native_splash: ^2.4.0
 
 dev_dependencies:

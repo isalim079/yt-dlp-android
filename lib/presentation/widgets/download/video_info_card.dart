@@ -96,7 +96,11 @@ class _Thumbnail extends StatelessWidget {
         width: w,
         height: h,
         fit: BoxFit.cover,
-        fadeInDuration: const Duration(milliseconds: 200),
+        memCacheWidth: (w * 2).toInt(),
+        memCacheHeight: (h * 2).toInt(),
+        maxWidthDiskCache: 384,
+        maxHeightDiskCache: 256,
+        fadeInDuration: const Duration(milliseconds: 150),
         placeholder: (BuildContext context, String _) => Container(
           width: w,
           height: h,

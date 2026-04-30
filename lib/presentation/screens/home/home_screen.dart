@@ -349,7 +349,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       const SizedBox(height: AppDimensions.spacingLg),
                       _RevealPanel(
                         animateKey: metadataUrl,
-                        child: VideoInfoCard(videoInfo: videoInfo),
+                        child: RepaintBoundary(child: VideoInfoCard(videoInfo: videoInfo)),
                       ),
                     ],
                     if (isPlaylist) ...<Widget>[
@@ -435,7 +435,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       const SizedBox(height: AppDimensions.spacingLg),
                       _RevealPanel(
                         animateKey: metadataUrl,
-                        child: FormatSelector(formats: formatsList),
+                        child: RepaintBoundary(child: FormatSelector(formats: formatsList)),
                       ),
                     ],
                     if (showNoFormats) ...<Widget>[

@@ -45,6 +45,17 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
   StreamSubscription<Map<dynamic, dynamic>>? _androidProgressSub;
   bool _progressListenerInitialized = false;
 
+  DateTime _lastProgressUpdate = DateTime.now();
+  static const Duration _progressThrottle = Duration(milliseconds: 250);
+
+  void _throttledEmit() {
+    final DateTime now = DateTime.now();
+    if (now.difference(_lastProgressUpdate) > _progressThrottle) {
+      _lastProgressUpdate = now;
+      state = List<DownloadItem>.unmodifiable(_queue);
+    }
+  }
+
   /// Emits each [DownloadItem] when its status becomes [DownloadStatus.completed].
   Stream<DownloadItem> get completionStream {
     _completionController ??= StreamController<DownloadItem>.broadcast();
@@ -369,7 +380,7 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
         downloadedSize: item.progress?.downloadedSize,
         isMerging: true,
       );
-      _emit();
+      _throttledEmit();
       return;
     }
 
@@ -386,7 +397,7 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
       totalSize: m.group(2) ?? '--',
       isMerging: false,
     );
-    _emit();
+    _throttledEmit();
   }
 
   /// Kills the yt-dlp process for [itemId] and marks the job failed.
@@ -709,7 +720,7 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
         isMerging: true,
       );
       item.status = DownloadStatus.downloading;
-      _emit();
+      _throttledEmit();
       return;
     }
 
@@ -741,7 +752,7 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
       );
     }
     item.status = DownloadStatus.downloading;
-    _emit();
+    _throttledEmit();
   }
 
   void _initProgressListener() {

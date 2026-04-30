@@ -115,18 +115,18 @@ class _AppButtonState extends State<AppButton> {
         width: widget.width,
         height: AppDimensions.buttonHeight,
         child: OutlinedButton(
-          onPressed: disabled ? null : widget.onPressed,
+          onPressed: widget.isLoading ? () {} : (widget.onPressed == null ? null : widget.onPressed),
           style: OutlinedButton.styleFrom(
             minimumSize: Size(widget.width, AppDimensions.buttonHeight),
             maximumSize: Size(widget.width, AppDimensions.buttonHeight),
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             side: BorderSide(
-              color: disabled && !widget.isLoading ? c.border : c.primary,
+              color: widget.onPressed == null && !widget.isLoading ? c.border : c.primary,
             ),
-            backgroundColor: disabled && !widget.isLoading
+            backgroundColor: widget.onPressed == null && !widget.isLoading
                 ? c.surface
                 : Colors.transparent,
-            foregroundColor: disabled && !widget.isLoading
+            foregroundColor: widget.onPressed == null && !widget.isLoading
                 ? c.textSecondary
                 : c.primary,
             shape: shape,
@@ -139,16 +139,16 @@ class _AppButtonState extends State<AppButton> {
         width: widget.width,
         height: AppDimensions.buttonHeight,
         child: ElevatedButton(
-          onPressed: disabled ? null : widget.onPressed,
+          onPressed: widget.isLoading ? () {} : (widget.onPressed == null ? null : widget.onPressed),
           style: ElevatedButton.styleFrom(
             elevation: 0,
             minimumSize: Size(widget.width, AppDimensions.buttonHeight),
             maximumSize: Size(widget.width, AppDimensions.buttonHeight),
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            backgroundColor: disabled && !widget.isLoading
+            backgroundColor: widget.onPressed == null && !widget.isLoading
                 ? c.border.withValues(alpha: 0.4)
                 : c.primary,
-            foregroundColor: disabled && !widget.isLoading
+            foregroundColor: widget.onPressed == null && !widget.isLoading
                 ? c.textSecondary
                 : c.onPrimary,
             disabledBackgroundColor: c.border.withValues(alpha: 0.35),

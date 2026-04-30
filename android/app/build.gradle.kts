@@ -10,6 +10,8 @@ android {
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
+
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -26,22 +28,15 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
-        ndk {
-            abiFilters += setOf("arm64-v8a")
-        }
     }
 
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("debug")
-            // Keep release stable for native/reflection-heavy youtubedl stack.
-            // R8 obfuscation causes startup crash in ZipUtils on launch.
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
-                // Non-optimize rules: proguard-android-optimize can break JNI/reflection
-                // edge cases (e.g. youtubedl-android) that only show up in release.
-                getDefaultProguardFile("proguard-android.txt"),
+                getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
         }
@@ -55,6 +50,13 @@ android {
                 "**/libpython.zip.so",
             )
         }
+        resources.excludes += setOf(
+            "**/kotlin/**",
+            "**/*.kotlin_module",
+            "**/META-INF/*.version",
+            "**/META-INF/proguard/**",
+            "**/META-INF/androidx.*",
+        )
     }
 
     applicationVariants.all {
