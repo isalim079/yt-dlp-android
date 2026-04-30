@@ -59,18 +59,7 @@ android {
         )
     }
 
-    applicationVariants.all {
-        val variant = this
-        outputs.all {
-            val appName = "yt-dlp"
-            val versionName = variant.versionName ?: "0.0.0"
-            val buildType = variant.buildType.name
-            val newName = "$appName-$versionName-$buildType.apk"
-            @Suppress("DEPRECATION")
-            (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl)
-                .outputFileName = newName
-        }
-    }
+
 }
 
 dependencies {

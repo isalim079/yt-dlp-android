@@ -1,6 +1,7 @@
 # Flutter
 -keep class io.flutter.** { *; }
 -keep class io.flutter.plugins.** { *; }
+-dontwarn com.google.android.play.core.**
 -keepattributes *Annotation*
 -keepattributes SourceFile,LineNumberTable
 
