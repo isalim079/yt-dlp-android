@@ -33,10 +33,12 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("debug")
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // Keep release stable for native/reflection-heavy youtubedl stack.
+            // R8 obfuscation causes startup crash in ZipUtils on launch.
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
+                getDefaultProguardFile("proguard-android.txt"),
                 "proguard-rules.pro",
             )
         }

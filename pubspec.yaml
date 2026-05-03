@@ -63,7 +63,7 @@ flutter_native_splash:
 flutter:
   uses-material-design: true
   assets:
-    - assets/bin/yt-dlp
-    - assets/bin/yt-dlp.exe
-    - assets/bin/yt-dlp_macos
+    # - assets/bin/yt-dlp
+    # - assets/bin/yt-dlp.exe
+    # - assets/bin/yt-dlp_macos
     - assets/icons/
