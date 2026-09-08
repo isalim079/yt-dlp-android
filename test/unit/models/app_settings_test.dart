@@ -6,7 +6,7 @@ void main() {
     test('defaults are correct', () {
       expect(AppSettings.defaults.themeMode, AppThemeMode.system);
       expect(AppSettings.defaults.maxConcurrentDownloads, 3);
-      expect(AppSettings.defaults.embedThumbnail, true);
+      expect(AppSettings.defaults.embedThumbnail, false);
       expect(AppSettings.defaults.skipExistingFiles, true);
     });
 

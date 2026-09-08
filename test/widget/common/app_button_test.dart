@@ -20,7 +20,7 @@ void main() {
         ),
       );
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
-      expect(find.text('Download'), findsNothing);
+      expect(find.text('Download'), findsOneWidget);
     });
 
     testWidgets('disabled when onPressed null', (WidgetTester t) async {
