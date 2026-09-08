@@ -122,6 +122,7 @@ class _DownloadScreenState extends ConsumerState<DownloadScreen> {
     final List<DownloadItem> queue = ref.watch(downloadQueueProvider);
     final DownloadManager manager = ref.watch(downloadManagerProvider.notifier);
     final List<DownloadItem> active = ref.watch(activeDownloadsProvider);
+    final List<DownloadItem> paused = ref.watch(pausedDownloadsProvider);
     final List<DownloadItem> completed = ref.watch(completedDownloadsProvider);
     final List<DownloadItem> failed = ref.watch(failedDownloadsProvider);
 
@@ -146,6 +147,62 @@ class _DownloadScreenState extends ConsumerState<DownloadScreen> {
           ).textTheme.titleLarge?.copyWith(color: c.textPrimary),
         ),
         actions: <Widget>[
+          if (activeOrQueued.isNotEmpty || paused.isNotEmpty || completed.isNotEmpty)
+            PopupMenuButton<String>(
+              icon: Icon(Icons.more_vert, color: c.textPrimary),
+              tooltip: 'Queue actions',
+              onSelected: (String value) {
+                switch (value) {
+                  case 'pause_all':
+                    HapticFeedback.mediumImpact();
+                    manager.pauseAll();
+                    break;
+                  case 'resume_all':
+                    HapticFeedback.mediumImpact();
+                    manager.resumeAll();
+                    break;
+                  case 'clear_completed':
+                    HapticFeedback.lightImpact();
+                    manager.clearCompleted();
+                    break;
+                }
+              },
+              itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                if (activeOrQueued.isNotEmpty)
+                  const PopupMenuItem<String>(
+                    value: 'pause_all',
+                    child: Row(
+                      children: <Widget>[
+                        Icon(Icons.pause_circle_outline, size: 20),
+                        SizedBox(width: 8),
+                        Text(AppStrings.pauseAll),
+                      ],
+                    ),
+                  ),
+                if (paused.isNotEmpty)
+                  const PopupMenuItem<String>(
+                    value: 'resume_all',
+                    child: Row(
+                      children: <Widget>[
+                        Icon(Icons.play_circle_outline, size: 20),
+                        SizedBox(width: 8),
+                        Text(AppStrings.resumeAll),
+                      ],
+                    ),
+                  ),
+                if (completed.isNotEmpty)
+                  const PopupMenuItem<String>(
+                    value: 'clear_completed',
+                    child: Row(
+                      children: <Widget>[
+                        Icon(Icons.cleaning_services_outlined, size: 20),
+                        SizedBox(width: 8),
+                        Text(AppStrings.clearAllCompleted),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
           IconButton(
             tooltip: AppStrings.settingsScreenTitle,
             icon: Icon(Icons.settings_outlined, color: c.textPrimary),
@@ -159,108 +216,153 @@ class _DownloadScreenState extends ConsumerState<DownloadScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: <Widget>[
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppDimensions.paddingMd,
-              vertical: AppDimensions.spaceSm,
-            ),
-            color: c.surface,
-            child: Row(
-              children: <Widget>[
-                _StatBadge(
-                  count: active.length,
-                  label: AppStrings.sectionActive,
-                  color: c.primary,
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 860),
+          child: Column(
+            children: <Widget>[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppDimensions.paddingMd,
+                  vertical: AppDimensions.spaceSm,
                 ),
-                const SizedBox(width: AppDimensions.spaceSm),
-                _StatBadge(
-                  count: completed.length,
-                  label: AppStrings.sectionDone,
-                  color: c.success,
-                ),
-                const SizedBox(width: AppDimensions.spaceSm),
-                _StatBadge(
-                  count: failed.length,
-                  label: AppStrings.sectionFailed,
-                  color: c.error,
-                ),
-                const Spacer(),
-                OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const DownloadedFilesScreen(),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.folder_open_rounded, size: 16),
-                  label: const Text(AppStrings.sectionDownloaded),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: queue.isEmpty
-                ? _EmptyDownloadsView(
-                    onGoHome: () => ref.read(tabIndexProvider.notifier).state = 0,
-                  )
-                : ListView(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppDimensions.paddingScreenHorizontal,
-                      vertical: AppDimensions.paddingScreenVertical,
-                    ),
+                color: c.surface,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
                     children: <Widget>[
-                      if (activeOrQueued.isNotEmpty) ...<Widget>[
-                        _SectionHeader(
-                          title: AppStrings.sectionDownloading,
-                          count: activeOrQueued.length,
-                          color: c.primary,
-                        ),
-                        ...activeOrQueued.map(
-                          (DownloadItem e) => _AnimatedDownloadRow(
-                            key: ValueKey<String>(e.id),
-                            child: RepaintBoundary(
-                              child: DownloadCard(itemId: e.id, manager: manager),
-                            ),
-                          ),
+                      _StatBadge(
+                        count: active.length,
+                        label: AppStrings.sectionActive,
+                        color: c.primary,
+                      ),
+                      if (paused.isNotEmpty) ...<Widget>[
+                        const SizedBox(width: AppDimensions.spaceSm),
+                        _StatBadge(
+                          count: paused.length,
+                          label: AppStrings.sectionPaused,
+                          color: c.warning,
                         ),
                       ],
-                      if (completed.isNotEmpty) ...<Widget>[
-                        _SectionHeader(
-                          title: AppStrings.sectionCompleted,
-                          count: completed.length,
-                          color: c.success,
-                        ),
-                        ...completed.map(
-                          (DownloadItem e) => _AnimatedDownloadRow(
-                            key: ValueKey<String>(e.id),
-                            child: RepaintBoundary(
-                              child: DownloadCard(itemId: e.id, manager: manager),
+                      const SizedBox(width: AppDimensions.spaceSm),
+                      _StatBadge(
+                        count: completed.length,
+                        label: AppStrings.sectionDone,
+                        color: c.success,
+                      ),
+                      const SizedBox(width: AppDimensions.spaceSm),
+                      _StatBadge(
+                        count: failed.length,
+                        label: AppStrings.sectionFailed,
+                        color: c.error,
+                      ),
+                      const SizedBox(width: AppDimensions.spaceMd),
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const DownloadedFilesScreen(),
                             ),
-                          ),
-                        ),
-                      ],
-                      if (failed.isNotEmpty) ...<Widget>[
-                        _SectionHeader(
-                          title: AppStrings.sectionFailed,
-                          count: failed.length,
-                          color: c.error,
-                        ),
-                        ...failed.map(
-                          (DownloadItem e) => _AnimatedDownloadRow(
-                            key: ValueKey<String>(e.id),
-                            child: RepaintBoundary(
-                              child: DownloadCard(itemId: e.id, manager: manager),
-                            ),
-                          ),
-                        ),
-                      ],
+                          );
+                        },
+                        icon: const Icon(Icons.folder_open_rounded, size: 16),
+                        label: const Text(AppStrings.sectionDownloaded),
+                      ),
                     ],
                   ),
+                ),
+              ),
+              Expanded(
+                child: queue.isEmpty
+                    ? _EmptyDownloadsView(
+                        onGoHome: () =>
+                            ref.read(tabIndexProvider.notifier).state = 0,
+                      )
+                    : ListView(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppDimensions.paddingScreenHorizontal,
+                          vertical: AppDimensions.paddingScreenVertical,
+                        ),
+                        children: <Widget>[
+                          if (activeOrQueued.isNotEmpty) ...<Widget>[
+                            _SectionHeader(
+                              title: AppStrings.sectionDownloading,
+                              count: activeOrQueued.length,
+                              color: c.primary,
+                            ),
+                            ...activeOrQueued.map(
+                              (DownloadItem e) => _AnimatedDownloadRow(
+                                key: ValueKey<String>(e.id),
+                                child: RepaintBoundary(
+                                  child: DownloadCard(
+                                    itemId: e.id,
+                                    manager: manager,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                          if (paused.isNotEmpty) ...<Widget>[
+                            _SectionHeader(
+                              title: AppStrings.sectionPaused,
+                              count: paused.length,
+                              color: c.warning,
+                            ),
+                            ...paused.map(
+                              (DownloadItem e) => _AnimatedDownloadRow(
+                                key: ValueKey<String>(e.id),
+                                child: RepaintBoundary(
+                                  child: DownloadCard(
+                                    itemId: e.id,
+                                    manager: manager,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                          if (completed.isNotEmpty) ...<Widget>[
+                            _SectionHeader(
+                              title: AppStrings.sectionCompleted,
+                              count: completed.length,
+                              color: c.success,
+                            ),
+                            ...completed.map(
+                              (DownloadItem e) => _AnimatedDownloadRow(
+                                key: ValueKey<String>(e.id),
+                                child: RepaintBoundary(
+                                  child: DownloadCard(
+                                    itemId: e.id,
+                                    manager: manager,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                          if (failed.isNotEmpty) ...<Widget>[
+                            _SectionHeader(
+                              title: AppStrings.sectionFailed,
+                              count: failed.length,
+                              color: c.error,
+                            ),
+                            ...failed.map(
+                              (DownloadItem e) => _AnimatedDownloadRow(
+                                key: ValueKey<String>(e.id),
+                                child: RepaintBoundary(
+                                  child: DownloadCard(
+                                    itemId: e.id,
+                                    manager: manager,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

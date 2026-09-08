@@ -13,6 +13,9 @@ enum DownloadStatus {
   /// Transfer in progress.
   downloading,
 
+  /// Paused by user (can be resumed).
+  paused,
+
   /// Finished successfully.
   completed,
 
@@ -95,12 +98,22 @@ class DownloadItem {
     return switch (status) {
       DownloadStatus.queued => AppStrings.statusQueued,
       DownloadStatus.downloading => AppStrings.statusDownloading,
+      DownloadStatus.paused => AppStrings.statusPaused,
       DownloadStatus.completed => AppStrings.statusCompleted,
       DownloadStatus.failed => AppStrings.statusFailed,
     };
   }
 
-  /// Whether the user can cancel this job while it is pending or active.
+  /// Whether the user can cancel this job while it is pending, active, or paused.
   bool get isCancellable =>
+      status == DownloadStatus.downloading ||
+      status == DownloadStatus.queued ||
+      status == DownloadStatus.paused;
+
+  /// Whether the user can pause this job while it is active or pending in queue.
+  bool get isPausable =>
       status == DownloadStatus.downloading || status == DownloadStatus.queued;
+
+  /// Whether the user can resume this job after being paused.
+  bool get isResumable => status == DownloadStatus.paused;
 }

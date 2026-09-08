@@ -98,8 +98,32 @@ abstract final class AppStrings {
   // Download status labels (UI)
   static const String statusQueued = 'Queued';
   static const String statusDownloading = 'Downloading';
+  static const String statusPaused = 'Paused';
   static const String statusCompleted = 'Completed';
   static const String statusFailed = 'Failed';
+
+  // Queue & action controls
+  static const String sectionPaused = 'Paused';
+  static const String pauseDownload = 'Pause';
+  static const String resumeDownload = 'Resume';
+  static const String pauseAll = 'Pause all';
+  static const String resumeAll = 'Resume all';
+  static const String clearAllCompleted = 'Clear completed';
+  static const String shareFile = 'Share';
+  static const String deleteFromDevice = 'Delete file';
+  static const String deleteFromDeviceConfirm = 'Delete file permanently?';
+  static const String deleteFromDeviceBody =
+      'This will remove the media file from your device storage.';
+  static const String filterAll = 'All';
+  static const String filterVideos = 'Videos';
+  static const String filterAudio = 'Audio';
+  static const String searchFilesHint = 'Search downloaded files...';
+  static const String clipboardUrlDetected = 'Media link detected in clipboard';
+  static const String downloadNow = 'Fetch';
+  static const String videoTab = 'Video';
+  static const String audioTab = 'Audio Only';
+  static const String bestQualityPreset = 'Best Quality';
+  static const String audioPreset = 'Best Audio';
 
   // Settings
   static const String resetDefaults = 'Reset';

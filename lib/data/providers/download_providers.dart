@@ -32,6 +32,12 @@ final Provider<List<DownloadItem>> activeDownloadsProvider =
       return ref.watch(downloadManagerProvider.notifier).activeDownloads;
     });
 
+/// Jobs paused by user.
+final Provider<List<DownloadItem>> pausedDownloadsProvider =
+    Provider<List<DownloadItem>>((Ref ref) {
+      return ref.watch(downloadManagerProvider.notifier).pausedDownloads;
+    });
+
 /// Successfully finished jobs.
 final Provider<List<DownloadItem>> completedDownloadsProvider =
     Provider<List<DownloadItem>>((Ref ref) {

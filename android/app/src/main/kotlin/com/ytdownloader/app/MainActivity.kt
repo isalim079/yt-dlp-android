@@ -270,8 +270,9 @@ class MainActivity : FlutterActivity() {
                             "${packageName}.fileprovider",
                             file
                         )
+                        val mimeType = getMimeTypeForPath(path)
                         val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                            setDataAndType(uri, "video/*")
+                            setDataAndType(uri, mimeType)
                             addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
@@ -283,8 +284,49 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
+                "shareFile" -> {
+                    val path = call.argument<String>("path") ?: ""
+                    try {
+                        val file = java.io.File(path)
+                        val uri = androidx.core.content.FileProvider.getUriForFile(
+                            this,
+                            "${packageName}.fileprovider",
+                            file
+                        )
+                        val mimeType = getMimeTypeForPath(path)
+                        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = mimeType
+                            putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        val chooser = android.content.Intent.createChooser(intent, "Share via")
+                        chooser.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        startActivity(chooser)
+                        result.success("ok")
+                    } catch (e: Exception) {
+                        result.error("SHARE_ERROR", e.message, null)
+                    }
+                }
+
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    private fun getMimeTypeForPath(path: String): String {
+        val lower = path.lowercase()
+        return when {
+            lower.endsWith(".mp3") -> "audio/mpeg"
+            lower.endsWith(".m4a") -> "audio/mp4"
+            lower.endsWith(".opus") -> "audio/opus"
+            lower.endsWith(".ogg") -> "audio/ogg"
+            lower.endsWith(".flac") -> "audio/flac"
+            lower.endsWith(".wav") -> "audio/wav"
+            lower.endsWith(".mp4") -> "video/mp4"
+            lower.endsWith(".mkv") -> "video/x-matroska"
+            lower.endsWith(".webm") -> "video/webm"
+            lower.endsWith(".mov") -> "video/quicktime"
+            else -> "*/*"
         }
     }
 

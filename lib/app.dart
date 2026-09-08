@@ -10,28 +10,43 @@ import 'core/constants/app_strings.dart';
 import 'core/theme/app_scroll_behavior.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/app_ui_colors.dart';
+import 'data/models/app_settings.dart';
 import 'data/providers/app_navigation_providers.dart';
 import 'data/providers/download_providers.dart';
+import 'data/providers/settings_providers.dart';
 import 'presentation/screens/download/download_screen.dart';
 import 'presentation/screens/home/home_screen.dart';
 import 'presentation/screens/settings/settings_screen.dart';
 
-/// Root [MaterialApp] with permanent light mode.
+/// Root [MaterialApp] supporting light and dark modes dynamically.
 class YtDownloaderApp extends ConsumerWidget {
   /// Creates the app root.
   const YtDownloaderApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final AsyncValue<AppSettings> settingsAsync = ref.watch(settingsProvider);
+    final ThemeMode themeMode = settingsAsync.maybeWhen(
+      data: (AppSettings s) => switch (s.themeMode) {
+        AppThemeMode.light => ThemeMode.light,
+        AppThemeMode.dark => ThemeMode.dark,
+        AppThemeMode.system => ThemeMode.system,
+      },
+      orElse: () => ThemeMode.system,
+    );
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: AppStrings.appName,
       theme: AppTheme.light,
-      themeMode: ThemeMode.light,
+      darkTheme: AppTheme.dark,
+      themeMode: themeMode,
       scrollBehavior: const AppScrollBehavior(),
       builder: (BuildContext context, Widget? child) {
         return MediaQuery(
-          data: MediaQuery.of(context).copyWith(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(
             textScaler: MediaQuery.of(
               context,
             ).textScaler.clamp(minScaleFactor: 0.8, maxScaleFactor: 1.2),
@@ -91,21 +106,81 @@ class _MainShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final int tab = ref.watch(tabIndexProvider);
     final int activeCount = ref.watch(activeDownloadCountProvider);
+    final AppUiColors c = AppColors.of(context);
+    final double screenWidth = MediaQuery.sizeOf(context).width;
+    final bool isWideScreen = screenWidth >= 600;
+
+    final Widget tabContent = _LazyIndexedStack(
+      index: tab,
+      children: const <Widget>[
+        HomeScreen(),
+        DownloadScreen(),
+        SettingsScreen(),
+      ],
+    );
+
+    if (isWideScreen) {
+      return Scaffold(
+        backgroundColor: c.background,
+        body: Row(
+          children: <Widget>[
+            NavigationRail(
+              backgroundColor: c.surface,
+              selectedIndex: tab,
+              onDestinationSelected: (int idx) {
+                ref.read(tabIndexProvider.notifier).state = idx;
+              },
+              labelType: NavigationRailLabelType.all,
+              leading: Padding(
+                padding: const EdgeInsets.symmetric(vertical: AppDimensions.spaceMd),
+                child: Icon(
+                  Icons.play_circle_fill_rounded,
+                  color: c.primary,
+                  size: AppDimensions.iconLg,
+                ),
+              ),
+              destinations: <NavigationRailDestination>[
+                NavigationRailDestination(
+                  icon: const Icon(Icons.home_outlined),
+                  selectedIcon: Icon(Icons.home_rounded, color: c.primary),
+                  label: const Text(AppStrings.navHome),
+                ),
+                NavigationRailDestination(
+                  icon: Badge(
+                    isLabelVisible: activeCount > 0,
+                    label: Text('$activeCount'),
+                    backgroundColor: c.primary,
+                    child: const Icon(Icons.download_outlined),
+                  ),
+                  selectedIcon: Badge(
+                    isLabelVisible: activeCount > 0,
+                    label: Text('$activeCount'),
+                    backgroundColor: c.primary,
+                    child: Icon(Icons.download_rounded, color: c.primary),
+                  ),
+                  label: const Text(AppStrings.navDownloads),
+                ),
+                NavigationRailDestination(
+                  icon: const Icon(Icons.settings_outlined),
+                  selectedIcon: Icon(Icons.settings_rounded, color: c.primary),
+                  label: const Text(AppStrings.navSettings),
+                ),
+              ],
+            ),
+            VerticalDivider(width: 1, thickness: 1, color: c.border),
+            Expanded(child: tabContent),
+          ],
+        ),
+      );
+    }
 
     return Scaffold(
-      body: _LazyIndexedStack(
-        index: tab,
-        children: const <Widget>[
-          HomeScreen(),
-          DownloadScreen(),
-          SettingsScreen(),
-        ],
-      ),
+      body: tabContent,
       bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          color: AppColors.surface,
-          border: Border(top: BorderSide(color: AppColors.border, width: 1)),
-          boxShadow: <BoxShadow>[
+        decoration: BoxDecoration(
+          color: c.surface,
+          border: Border(top: BorderSide(color: c.border, width: 1)),
+          boxShadow: const <BoxShadow>[
             BoxShadow(
               color: AppColors.shadow,
               blurRadius: 20,

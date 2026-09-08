@@ -96,6 +96,11 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
       .where((DownloadItem i) => i.status == DownloadStatus.downloading)
       .toList(growable: false);
 
+  /// Jobs paused by user.
+  List<DownloadItem> get pausedDownloads => _queue
+      .where((DownloadItem i) => i.status == DownloadStatus.paused)
+      .toList(growable: false);
+
   /// Finished jobs.
   List<DownloadItem> get completedDownloads => _queue
       .where((DownloadItem i) => i.status == DownloadStatus.completed)
@@ -401,7 +406,7 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
   }
 
   /// Kills the yt-dlp process for [itemId] and marks the job failed.
-  Future<void> cancelDownload(String itemId) async {
+  Future<void> cancelDownload(String itemId, {bool deletePartial = true}) async {
     if (Platform.isAndroid && _activeAndroidProcessIds.contains(itemId)) {
       try {
         await YtdlpPlatformChannel.cancelDownload(itemId);
@@ -424,11 +429,123 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
       item.status = DownloadStatus.failed;
       item.errorMessage = AppStrings.errorDownloadCancelled;
       _emit();
-      if (item.outputPath.isNotEmpty) {
+      if (deletePartial && item.outputPath.isNotEmpty) {
         await _deletePartialFiles(item.outputPath, item.title);
       }
     }
     _startNextQueued();
+  }
+
+  /// Pauses an active download, keeping partial files intact so it can be resumed.
+  Future<void> pauseDownload(String itemId) async {
+    if (Platform.isAndroid && _activeAndroidProcessIds.contains(itemId)) {
+      try {
+        await YtdlpPlatformChannel.cancelDownload(itemId);
+      } on Object catch (error, stackTrace) {
+        AppLogger.w('android pause cancel failed $itemId: $error\n$stackTrace');
+      }
+      _activeAndroidProcessIds.remove(itemId);
+    }
+    final Process? proc = _activeProcesses[itemId];
+    if (proc != null) {
+      try {
+        proc.kill(ProcessSignal.sigkill);
+      } on Object catch (error, stackTrace) {
+        AppLogger.w('kill for pause failed $itemId: $error\n$stackTrace');
+      }
+      _activeProcesses.remove(itemId);
+    }
+    final DownloadItem? item = _findItem(itemId);
+    if (item != null) {
+      item.status = DownloadStatus.paused;
+      AppLogger.i('Download paused: ${item.title}');
+      _emit();
+    }
+    _startNextQueued();
+  }
+
+  /// Resumes a paused download by placing it back in the queue.
+  Future<void> resumeDownload(String itemId) async {
+    final DownloadItem? item = _findItem(itemId);
+    if (item == null || item.status != DownloadStatus.paused) {
+      return;
+    }
+    item.status = DownloadStatus.queued;
+    item.errorMessage = null;
+    AppLogger.i('Download resumed: ${item.title}');
+    _emit();
+    _startNextQueued();
+  }
+
+  /// Pauses all active and queued downloads.
+  Future<void> pauseAll() async {
+    final List<DownloadItem> targets = _queue
+        .where(
+          (DownloadItem i) =>
+              i.status == DownloadStatus.downloading ||
+              i.status == DownloadStatus.queued,
+        )
+        .toList(growable: false);
+    for (final DownloadItem item in targets) {
+      await pauseDownload(item.id);
+    }
+  }
+
+  /// Resumes all paused downloads.
+  Future<void> resumeAll() async {
+    final List<DownloadItem> targets = _queue
+        .where((DownloadItem i) => i.status == DownloadStatus.paused)
+        .toList(growable: false);
+    for (final DownloadItem item in targets) {
+      await resumeDownload(item.id);
+    }
+  }
+
+  /// Permanently deletes the downloaded file from disk and removes item from queue.
+  Future<bool> deleteDownloadedFile(String itemId) async {
+    final DownloadItem? item = _findItem(itemId);
+    if (item == null) {
+      return false;
+    }
+
+    if (_activeProcesses.containsKey(itemId) ||
+        _activeAndroidProcessIds.contains(itemId)) {
+      await cancelDownload(itemId);
+    }
+
+    bool fileDeleted = false;
+    if (item.outputPath.isNotEmpty) {
+      try {
+        final Directory dir = Directory(item.outputPath);
+        if (await dir.exists()) {
+          final String slug = _slugPrefix(item.title);
+          final String rawTitleLower = item.title.trim().toLowerCase();
+          await for (final FileSystemEntity entity in dir.list()) {
+            if (entity is File) {
+              final String name = p.basename(entity.path).toLowerCase();
+              final String normalizedName =
+                  name.replaceAll(RegExp(r'[^a-z0-9]+'), '');
+              final bool matches = (slug.isNotEmpty &&
+                      (name.contains(slug) ||
+                          normalizedName.contains(slug))) ||
+                  (rawTitleLower.isNotEmpty && name.contains(rawTitleLower));
+              if (matches) {
+                await entity.delete();
+                fileDeleted = true;
+                AppLogger.i('Deleted file from disk: ${entity.path}');
+              }
+            }
+          }
+        }
+      } on Object catch (error, stackTrace) {
+        AppLogger.w('deleteDownloadedFile failed: $error\n$stackTrace');
+      }
+    }
+
+    _queue.removeWhere((DownloadItem e) => e.id == itemId);
+    _emit();
+    unawaited(_savePlayedState());
+    return fileDeleted;
   }
 
   /// Re-queues a failed job and attempts download again.
@@ -535,6 +652,9 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
     }
     return null;
   }
+
+  /// Finds an item in the queue by its stable id, or returns null.
+  DownloadItem? findItem(String id) => _findItem(id);
 
   DownloadItem? _findItem(String id) {
     try {

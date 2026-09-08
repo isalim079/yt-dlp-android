@@ -75,8 +75,21 @@ class AppUiColors extends ThemeExtension<AppUiColors> {
     onPrimary: Colors.white,
   );
 
-  /// Kept for compatibility; app runs light mode only.
-  static const AppUiColors dark = light;
+  /// Dark palette instance.
+  static const AppUiColors dark = AppUiColors(
+    primary: AppColors.darkPrimary,
+    primaryLight: AppColors.darkPrimaryLight,
+    secondary: AppColors.darkSecondary,
+    background: AppColors.darkBackground,
+    surface: AppColors.darkSurface,
+    border: AppColors.darkBorder,
+    textPrimary: AppColors.darkTextPrimary,
+    textSecondary: AppColors.darkTextSecondary,
+    error: AppColors.darkError,
+    success: AppColors.darkSuccess,
+    warning: AppColors.darkWarning,
+    onPrimary: Colors.white,
+  );
 
   /// Resolves this extension from [context].
   static AppUiColors of(BuildContext context) {

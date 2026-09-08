@@ -29,6 +29,25 @@ abstract final class AppColors {
   static const Color shadow = Color(0x1A000000);
   static const Color shadowMd = Color(0x29000000);
 
+  // Dark Theme Tokens
+  static const Color darkBackground = Color(0xFF101012);
+  static const Color darkSurface = Color(0xFF1B1B1F);
+  static const Color darkSurfaceAlt = Color(0xFF24242A);
+  static const Color darkBorder = Color(0xFF2E2E36);
+  static const Color darkTextPrimary = Color(0xFFF1F1F4);
+  static const Color darkTextSecondary = Color(0xFFA1A1AA);
+  static const Color darkTextHint = Color(0xFF71717A);
+  static const Color darkPrimary = Color(0xFFE53935);
+  static const Color darkPrimaryLight = Color(0xFF381A1A);
+  static const Color darkSecondary = Color(0xFF42A5F5);
+  static const Color darkSecondaryLight = Color(0xFF14263D);
+  static const Color darkSuccess = Color(0xFF4CAF50);
+  static const Color darkSuccessLight = Color(0xFF172B1A);
+  static const Color darkWarning = Color(0xFFFFB74D);
+  static const Color darkWarningLight = Color(0xFF332711);
+  static const Color darkError = Color(0xFFEF5350);
+  static const Color darkErrorLight = Color(0xFF381717);
+
   /// Semantic UI colors for the active theme brightness.
   static AppUiColors of(BuildContext context) => AppUiColors.of(context);
 }

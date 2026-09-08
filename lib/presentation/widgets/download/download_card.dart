@@ -18,7 +18,9 @@ import '../../../core/utils/logger.dart';
 import '../../../data/models/download_item.dart';
 import '../../../data/providers/download_providers.dart';
 import '../../../data/services/download_manager.dart';
+import '../../../data/services/ytdlp_platform_channel.dart';
 import '../common/app_progress_bar.dart';
+import '../common/app_snackbar.dart';
 import 'circular_progress_ring.dart';
 
 /// One row in the downloads list with metadata and controls.
@@ -155,6 +157,35 @@ class DownloadCard extends ConsumerWidget {
               ],
             ),
           ],
+          if (item.status == DownloadStatus.paused) ...<Widget>[
+            const SizedBox(height: AppDimensions.spaceSm),
+            RepaintBoundary(
+              child: AppProgressBar(
+                value: item.progress?.percent ?? 0,
+                isIndeterminate: false,
+              ),
+            ),
+            const SizedBox(height: AppDimensions.spaceXs),
+            Row(
+              children: <Widget>[
+                Icon(
+                  Icons.pause_circle_outline_rounded,
+                  size: 14,
+                  color: c.warning,
+                ),
+                const SizedBox(width: AppDimensions.spaceXs),
+                Text(
+                  '${_progressLabel(item, indeterminate)} · ${AppStrings.statusPaused}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: textTheme.bodySmall?.copyWith(
+                    color: c.warning,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (item.status == DownloadStatus.queued) ...<Widget>[
             const SizedBox(height: AppDimensions.spaceSm),
             Row(
@@ -231,6 +262,28 @@ class DownloadCard extends ConsumerWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: <Widget>[
+                if (item.isPausable)
+                  _ActionChip(
+                    icon: Icons.pause_circle_outline_rounded,
+                    label: AppStrings.pauseDownload,
+                    color: c.warning,
+                    filled: false,
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      manager.pauseDownload(item.id);
+                    },
+                  ),
+                if (item.isResumable)
+                  _ActionChip(
+                    icon: Icons.play_arrow_rounded,
+                    label: AppStrings.resumeDownload,
+                    color: c.primary,
+                    filled: true,
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      manager.resumeDownload(item.id);
+                    },
+                  ),
                 if (item.status == DownloadStatus.completed)
                   _ActionChip(
                     icon: Icons.play_circle_filled_rounded,
@@ -238,6 +291,14 @@ class DownloadCard extends ConsumerWidget {
                     color: c.primary,
                     filled: true,
                     onTap: () => _showPlayerPicker(context, item),
+                  ),
+                if (item.status == DownloadStatus.completed)
+                  _ActionChip(
+                    icon: Icons.share_rounded,
+                    label: AppStrings.shareFile,
+                    color: c.secondary,
+                    filled: false,
+                    onTap: () => _shareDownloadedFile(context, item),
                   ),
                 if (item.isCancellable)
                   _ActionChip(
@@ -255,12 +316,20 @@ class DownloadCard extends ConsumerWidget {
                     filled: true,
                     onTap: () => manager.retryDownload(item.id),
                   ),
+                if (item.status == DownloadStatus.completed)
+                  _ActionChip(
+                    icon: Icons.delete_forever_rounded,
+                    label: AppStrings.deleteFromDevice,
+                    color: c.error,
+                    filled: false,
+                    onTap: () => _showDeleteFileConfirmation(context, item),
+                  ),
                 if (item.status == DownloadStatus.completed ||
                     item.status == DownloadStatus.failed)
                   _ActionChip(
-                    icon: Icons.delete_outline_rounded,
+                    icon: Icons.close_rounded,
                     label: AppStrings.removeDownload,
-                    color: c.error,
+                    color: c.textSecondary,
                     filled: false,
                     onTap: () => manager.removeDownload(item.id),
                   ),
@@ -384,6 +453,86 @@ class DownloadCard extends ConsumerWidget {
       },
     );
   }
+
+  Future<void> _showDeleteFileConfirmation(
+    BuildContext context,
+    DownloadItem item,
+  ) async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext ctx) {
+        final AppUiColors c = AppColors.of(ctx);
+        return AlertDialog(
+          title: const Text(AppStrings.deleteFromDeviceConfirm),
+          content: const Text(AppStrings.deleteFromDeviceBody),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text(AppStrings.buttonCancel),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: c.error),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text(AppStrings.deleteFileConfirm),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirm == true) {
+      HapticFeedback.mediumImpact();
+      final bool deleted = await manager.deleteDownloadedFile(item.id);
+      if (context.mounted) {
+        if (deleted) {
+          AppSnackbar.showSuccess(context, AppStrings.deleteFileSuccess);
+        } else {
+          AppSnackbar.showInfo(context, AppStrings.removeDownload);
+        }
+      }
+    }
+  }
+
+  Future<void> _shareDownloadedFile(
+    BuildContext context,
+    DownloadItem item,
+  ) async {
+    try {
+      if (item.outputPath.isEmpty) {
+        return;
+      }
+      final Directory dir = Directory(item.outputPath);
+      if (!await dir.exists()) {
+        return;
+      }
+
+      File? targetFile;
+      final String slug = item.title.trim().toLowerCase();
+      final int searchLen = slug.length.clamp(0, 15);
+      final String prefix = slug.substring(0, searchLen);
+
+      await for (final FileSystemEntity entity in dir.list()) {
+        if (entity is File) {
+          final String name = entity.path.toLowerCase();
+          if (prefix.isNotEmpty && name.contains(prefix)) {
+            targetFile = entity;
+            break;
+          }
+        }
+      }
+      if (targetFile != null && await targetFile.exists()) {
+        HapticFeedback.lightImpact();
+        await YtdlpPlatformChannel.shareFile(targetFile.path);
+      } else {
+        if (context.mounted) {
+          AppSnackbar.showError(context, 'File not found on disk.');
+        }
+      }
+    } on Object catch (error) {
+      if (context.mounted) {
+        AppSnackbar.showError(context, 'Share failed: $error');
+      }
+    }
+  }
 }
 
 class _StatusBadge extends StatelessWidget {
@@ -404,6 +553,10 @@ class _StatusBadge extends StatelessWidget {
         bg = c.primaryLight;
         fg = c.primary;
         label = AppStrings.statusDownloading;
+      case DownloadStatus.paused:
+        bg = AppColors.warningLight;
+        fg = c.warning;
+        label = AppStrings.statusPaused;
       case DownloadStatus.queued:
         bg = AppColors.warningLight;
         fg = c.warning;
@@ -449,6 +602,7 @@ class _StatusBadge extends StatelessWidget {
   IconData _iconFor(DownloadStatus s) {
     return switch (s) {
       DownloadStatus.queued => Icons.schedule_rounded,
+      DownloadStatus.paused => Icons.pause_rounded,
       DownloadStatus.completed => Icons.check_rounded,
       DownloadStatus.failed => Icons.error_outline_rounded,
       DownloadStatus.downloading => Icons.download_rounded,
@@ -612,6 +766,18 @@ class _ThumbnailPreview extends StatelessWidget {
               color: Colors.black.withValues(alpha: 0.35),
               alignment: Alignment.center,
               child: CircularProgressRing(percent: percent),
+            ),
+          ),
+        if (item.status == DownloadStatus.paused)
+          Positioned.fill(
+            child: Container(
+              color: Colors.black.withValues(alpha: 0.45),
+              alignment: Alignment.center,
+              child: const Icon(
+                Icons.pause_circle_filled_rounded,
+                color: Colors.white,
+                size: 28,
+              ),
             ),
           ),
         if (item.status == DownloadStatus.completed)

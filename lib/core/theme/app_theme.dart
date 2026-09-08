@@ -88,6 +88,84 @@ abstract final class AppTheme {
     );
   }
 
+  static ThemeData get dark {
+    const ColorScheme scheme = ColorScheme.dark(
+      primary: AppColors.darkPrimary,
+      secondary: AppColors.darkSecondary,
+      surface: AppColors.darkSurface,
+      error: AppColors.darkError,
+    );
+
+    final TextTheme textTheme = _textTheme(
+      displayColor: AppColors.darkTextPrimary,
+      bodyColor: AppColors.darkTextPrimary,
+    );
+
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: AppColors.darkBackground,
+      extensions: const <ThemeExtension<dynamic>>[AppUiColors.dark],
+      textTheme: textTheme,
+      appBarTheme: AppBarTheme(
+        backgroundColor: AppColors.darkSurface,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        centerTitle: false,
+        iconTheme: const IconThemeData(color: AppColors.darkTextPrimary),
+        titleTextStyle: const TextStyle(
+          color: AppColors.darkTextPrimary,
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
+          letterSpacing: -0.5,
+        ),
+        systemOverlayStyle: const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.light,
+          systemNavigationBarColor: AppColors.darkSurface,
+          systemNavigationBarIconBrightness: Brightness.light,
+        ),
+      ),
+      cardTheme: CardThemeData(
+        color: AppColors.darkSurface,
+        elevation: AppDimensions.cardElevation,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppDimensions.cardRadius),
+          side: const BorderSide(color: AppColors.darkBorder, width: 1),
+        ),
+        margin: EdgeInsets.zero,
+      ),
+      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+        backgroundColor: AppColors.darkSurface,
+        selectedItemColor: AppColors.darkPrimary,
+        unselectedItemColor: AppColors.darkTextSecondary,
+        elevation: 0,
+        type: BottomNavigationBarType.fixed,
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: AppColors.darkSurface,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppDimensions.inputRadius),
+          borderSide: const BorderSide(color: AppColors.darkBorder),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppDimensions.inputRadius),
+          borderSide: const BorderSide(color: AppColors.darkBorder),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppDimensions.inputRadius),
+          borderSide: const BorderSide(color: AppColors.darkPrimary, width: 2),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
+      ),
+    );
+  }
+
   static TextTheme _textTheme({
     required Color displayColor,
     required Color bodyColor,

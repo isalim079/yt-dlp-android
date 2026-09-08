@@ -98,4 +98,14 @@ class YtdlpPlatformChannel {
         }
         return <dynamic, dynamic>{};
       });
+
+  /// Opens a downloaded file with the default system media player.
+  static Future<void> openFile(String path) async {
+    await _channel.invokeMethod<void>('openFile', <String, dynamic>{'path': path});
+  }
+
+  /// Shares a downloaded file using the system share sheet.
+  static Future<void> shareFile(String path) async {
+    await _channel.invokeMethod<void>('shareFile', <String, dynamic>{'path': path});
+  }
 }

@@ -3,6 +3,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -38,6 +39,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   late final TextEditingController _urlController;
+  String? _detectedClipboardUrl;
 
   @override
   void initState() {
@@ -47,7 +49,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       await _requestPermissionsOnStartup();
       await ref.read(storagePermissionCheckerProvider.future);
       ShareIntentHandler.initialize(ref);
+      await _checkClipboardForUrl();
     });
+  }
+
+  Future<void> _checkClipboardForUrl() async {
+    try {
+      final ClipboardData? data = await Clipboard.getData(Clipboard.kTextPlain);
+      final String? text = data?.text?.trim();
+      if (text != null && text.isNotEmpty && _isProbableMediaUrl(text)) {
+        if (mounted && text != _urlController.text.trim()) {
+          setState(() => _detectedClipboardUrl = text);
+        }
+      }
+    } catch (_) {}
+  }
+
+  bool _isProbableMediaUrl(String url) {
+    final String lower = url.toLowerCase();
+    return lower.contains('youtube.com') ||
+        lower.contains('youtu.be') ||
+        lower.contains('instagram.com') ||
+        lower.contains('tiktok.com') ||
+        lower.contains('twitter.com') ||
+        lower.contains('x.com') ||
+        lower.startsWith('http://') ||
+        lower.startsWith('https://');
   }
 
   @override
@@ -224,275 +251,398 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       MediaQuery.of(context).viewInsets.bottom +
                       AppDimensions.spacingXl * 2,
                 ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    if (!hasStoragePermission)
-                      _PermissionWarningBanner(
-                        onGrant: () async {
-                          final bool granted = await PermissionHandlerUtil
-                              .requestStoragePermission();
-                          if (granted) {
-                            ref.read(storagePermissionProvider.notifier).state =
-                                true;
-                            return;
-                          }
-                          if (context.mounted) {
-                            await PermissionHandlerUtil.showPermissionDeniedDialog(
-                              context,
-                            );
-                          }
-                        },
-                      ),
-                    AppTextField(
-                      controller: _urlController,
-                      hintText: AppStrings.urlHint,
-                      keyboardType: TextInputType.url,
-                      textInputAction: TextInputAction.search,
-                      onChanged: (String v) {
-                        ref.read(urlInputProvider.notifier).state = v;
-                      },
-                      onSubmitted: (String v) {
-                        ref
-                            .read(homeScreenControllerProvider.notifier)
-                            .searchSubmitted(v);
-                      },
-                      prefixIcon: Icon(
-                        Icons.link_rounded,
-                        color: c.textSecondary,
-                      ),
-                      suffixIcon: draftUrl.isEmpty
-                          ? null
-                          : IconButton(
-                              tooltip: AppStrings.buttonClear,
-                              icon: Icon(
-                                Icons.clear_rounded,
-                                color: c.textSecondary,
-                              ),
-                              onPressed: () {
-                                _urlController.clear();
-                                ref.read(urlInputProvider.notifier).state = '';
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: MediaQuery.sizeOf(context).width >= 720 ? 1080 : 680,
+                    ),
+                    child: Builder(
+                      builder: (BuildContext ctx) {
+                        final bool isTablet = MediaQuery.sizeOf(ctx).width >= 720;
+
+                        final List<Widget> leftChildren = <Widget>[
+                          if (!hasStoragePermission)
+                            _PermissionWarningBanner(
+                              onGrant: () async {
+                                final bool granted = await PermissionHandlerUtil
+                                    .requestStoragePermission();
+                                if (granted) {
+                                  ref.read(storagePermissionProvider.notifier).state =
+                                      true;
+                                  return;
+                                }
+                                if (context.mounted) {
+                                  await PermissionHandlerUtil.showPermissionDeniedDialog(
+                                    context,
+                                  );
+                                }
                               },
                             ),
-                    ),
-                    const SizedBox(height: AppDimensions.spaceSm),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: ActionChip(
-                        avatar: Icon(
-                          Icons.content_paste_rounded,
-                          size: AppDimensions.iconSm,
-                          color: c.primary,
-                        ),
-                        label: Text(
-                          AppStrings.pasteFromClipboard,
-                          style: textTheme.labelMedium?.copyWith(
-                            color: c.primary,
-                          ),
-                        ),
-                        side: BorderSide(
-                          color: c.primary.withValues(alpha: 0.45),
-                        ),
-                        backgroundColor: c.surface,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () =>
-                            homeCtrl.pasteFromClipboard(_urlController),
-                      ),
-                    ),
-                    const SizedBox(height: AppDimensions.spacingLg),
-                    AppButton(
-                      label: AppStrings.searchButton,
-                      icon: const Icon(Icons.search_rounded),
-                      isLoading:
-                          formatsAsync.isLoading && metadataUrl.isNotEmpty,
-                      onPressed: urlEmpty || isOffline
-                          ? null
-                          : () => homeCtrl.searchSubmitted(draftUrl),
-                    ),
-                    if (showHomeEmpty) ...<Widget>[
-                      const SizedBox(height: AppDimensions.spacingLg),
-                      const _HomeEmptyState(),
-                    ],
-                    if (showPlaylistChip) ...<Widget>[
-                      const SizedBox(height: AppDimensions.spaceMd),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Chip(
-                          avatar: Icon(
-                            Icons.playlist_play_rounded,
-                            size: AppDimensions.iconSm,
-                            color: c.primary,
-                          ),
-                          label: Text(
-                            AppStrings.playlistBanner,
-                            style: textTheme.labelMedium?.copyWith(
-                              color: c.primary,
-                            ),
-                          ),
-                          side: BorderSide(
-                            color: c.primary.withValues(alpha: 0.4),
-                          ),
-                          backgroundColor: c.surface,
-                          materialTapTargetSize:
-                              MaterialTapTargetSize.shrinkWrap,
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ),
-                    ],
-                    if (showLoadingSkeleton) ...<Widget>[
-                      const SizedBox(height: AppDimensions.spacingLg),
-                      const _LoadingSkeleton(),
-                    ],
-                    if (showVideoCard) ...<Widget>[
-                      const SizedBox(height: AppDimensions.spacingLg),
-                      _RevealPanel(
-                        animateKey: metadataUrl,
-                        child: RepaintBoundary(child: VideoInfoCard(videoInfo: videoInfo)),
-                      ),
-                    ],
-                    if (isPlaylist) ...<Widget>[
-                      const SizedBox(height: AppDimensions.spacingLg),
-                      Material(
-                        color: c.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(
-                          AppDimensions.radiusMd,
-                        ),
-                        child: InkWell(
-                          onTap: hasPlaylistEntries
-                              ? () => homeCtrl.startPlaylistDownloadsFromHome(
-                                    ref: ref,
-                                    context: context,
-                                  )
-                              : null,
-                          borderRadius: BorderRadius.circular(
-                            AppDimensions.radiusMd,
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppDimensions.paddingMd,
-                              vertical: AppDimensions.spaceSm,
-                            ),
-                            child: Row(
-                              children: <Widget>[
-                                Icon(
-                                  Icons.playlist_play_rounded,
-                                  color: c.primary,
-                                  size: AppDimensions.iconMd,
-                                ),
-                                const SizedBox(width: AppDimensions.spaceSm),
-                                Expanded(
-                                  child: Text(
-                                    playlistInfoAsync.maybeWhen(
-                                      data: (PlaylistInfo? pi) => pi != null
-                                          ? AppStrings.playlistVideosLine(
-                                              pi.count,
-                                            )
-                                          : AppStrings.playlistBanner,
-                                      loading: () => AppStrings.loading,
-                                      orElse: () => AppStrings.playlistBanner,
-                                    ),
-                                    style: textTheme.bodyMedium?.copyWith(
-                                      color: c.primary,
-                                      fontWeight: FontWeight.w500,
+                          if (_detectedClipboardUrl != null)
+                            Container(
+                              margin: const EdgeInsets.only(bottom: AppDimensions.spaceSm),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: AppDimensions.spaceMd,
+                                vertical: AppDimensions.spaceSm,
+                              ),
+                              decoration: BoxDecoration(
+                                color: c.primary.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(AppDimensions.radiusMd),
+                                border: Border.all(color: c.primary.withValues(alpha: 0.3)),
+                              ),
+                              child: Row(
+                                children: <Widget>[
+                                  Icon(Icons.link_rounded, color: c.primary, size: 20),
+                                  const SizedBox(width: AppDimensions.spaceSm),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: <Widget>[
+                                        Text(
+                                          AppStrings.clipboardUrlDetected,
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 12,
+                                            color: c.primary,
+                                          ),
+                                        ),
+                                        Text(
+                                          _detectedClipboardUrl!,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: c.textSecondary,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                ),
-                                if (!hasPlaylistEntries)
-                                  SizedBox(
-                                    width: AppDimensions.iconSm,
-                                    height: AppDimensions.iconSm,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: c.primary,
+                                  TextButton(
+                                    onPressed: () {
+                                      HapticFeedback.selectionClick();
+                                      final String url = _detectedClipboardUrl!;
+                                      setState(() => _detectedClipboardUrl = null);
+                                      _urlController.text = url;
+                                      ref.read(urlInputProvider.notifier).state = url;
+                                      homeCtrl.searchSubmitted(url);
+                                    },
+                                    child: Text(
+                                      AppStrings.downloadNow,
+                                      style: TextStyle(
+                                        color: c.primary,
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                     ),
-                                  )
-                                else
-                                  Icon(
-                                    Icons.chevron_right_rounded,
+                                  ),
+                                  IconButton(
+                                    icon: Icon(
+                                      Icons.close_rounded,
+                                      size: 16,
+                                      color: c.textSecondary,
+                                    ),
+                                    onPressed: () =>
+                                        setState(() => _detectedClipboardUrl = null),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                      minWidth: 24,
+                                      minHeight: 24,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          AppTextField(
+                            controller: _urlController,
+                            hintText: AppStrings.urlHint,
+                            keyboardType: TextInputType.url,
+                            textInputAction: TextInputAction.search,
+                            onChanged: (String v) {
+                              ref.read(urlInputProvider.notifier).state = v;
+                            },
+                            onSubmitted: (String v) {
+                              ref
+                                  .read(homeScreenControllerProvider.notifier)
+                                  .searchSubmitted(v);
+                            },
+                            prefixIcon: Icon(
+                              Icons.link_rounded,
+                              color: c.textSecondary,
+                            ),
+                            suffixIcon: draftUrl.isEmpty
+                                ? null
+                                : IconButton(
+                                    tooltip: AppStrings.buttonClear,
+                                    icon: Icon(
+                                      Icons.clear_rounded,
+                                      color: c.textSecondary,
+                                    ),
+                                    onPressed: () {
+                                      _urlController.clear();
+                                      ref.read(urlInputProvider.notifier).state = '';
+                                    },
+                                  ),
+                          ),
+                          const SizedBox(height: AppDimensions.spaceSm),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: ActionChip(
+                              avatar: Icon(
+                                Icons.content_paste_rounded,
+                                size: AppDimensions.iconSm,
+                                color: c.primary,
+                              ),
+                              label: Text(
+                                AppStrings.pasteFromClipboard,
+                                style: textTheme.labelMedium?.copyWith(
+                                  color: c.primary,
+                                ),
+                              ),
+                              side: BorderSide(
+                                color: c.primary.withValues(alpha: 0.45),
+                              ),
+                              backgroundColor: c.surface,
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                              visualDensity: VisualDensity.compact,
+                              onPressed: () =>
+                                  homeCtrl.pasteFromClipboard(_urlController),
+                            ),
+                          ),
+                          const SizedBox(height: AppDimensions.spacingLg),
+                          AppButton(
+                            label: AppStrings.searchButton,
+                            icon: const Icon(Icons.search_rounded),
+                            isLoading:
+                                formatsAsync.isLoading && metadataUrl.isNotEmpty,
+                            onPressed: urlEmpty || isOffline
+                                ? null
+                                : () => homeCtrl.searchSubmitted(draftUrl),
+                          ),
+                          if (showHomeEmpty) ...<Widget>[
+                            const SizedBox(height: AppDimensions.spacingLg),
+                            const _HomeEmptyState(),
+                          ],
+                          if (showPlaylistChip) ...<Widget>[
+                            const SizedBox(height: AppDimensions.spaceMd),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Chip(
+                                avatar: Icon(
+                                  Icons.playlist_play_rounded,
+                                  size: AppDimensions.iconSm,
+                                  color: c.primary,
+                                ),
+                                label: Text(
+                                  AppStrings.playlistBanner,
+                                  style: textTheme.labelMedium?.copyWith(
                                     color: c.primary,
                                   ),
-                              ],
+                                ),
+                                side: BorderSide(
+                                  color: c.primary.withValues(alpha: 0.4),
+                                ),
+                                backgroundColor: c.surface,
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
+                                visualDensity: VisualDensity.compact,
+                              ),
                             ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: AppDimensions.spaceMd),
-                      AppButton(
-                        label: AppStrings.downloadButton,
-                        icon: const Icon(Icons.download_rounded),
-                        isLoading: !hasPlaylistEntries,
-                        onPressed: hasPlaylistEntries
-                            ? () => homeCtrl.startPlaylistDownloadsFromHome(
-                                  ref: ref,
-                                  context: context,
-                                )
-                            : null,
-                      ),
-                    ],
-                    if (showFormatSelector) ...<Widget>[
-                      const SizedBox(height: AppDimensions.spacingLg),
-                      _RevealPanel(
-                        animateKey: metadataUrl,
-                        child: RepaintBoundary(child: FormatSelector(formats: formatsList)),
-                      ),
-                    ],
-                    if (showNoFormats) ...<Widget>[
-                      const SizedBox(height: AppDimensions.spacingLg),
-                      Text(
-                        AppStrings.noFormatsFound,
-                        textAlign: TextAlign.center,
-                        style: textTheme.bodyMedium?.copyWith(
-                          color: c.textSecondary,
-                        ),
-                      ),
-                    ],
-                    if (showDownload) ...<Widget>[
-                      const SizedBox(height: AppDimensions.spacingLg),
-                      AppButton(
-                        label: AppStrings.downloadButton,
-                        icon: const Icon(Icons.download_rounded),
-                        onPressed: () => homeCtrl.startDownload(
-                          ref: ref,
-                          context: context,
-                          url: metadataUrl.isNotEmpty
-                              ? metadataUrl
-                              : draftUrl.trim(),
-                          format: selectedFormat,
-                          videoInfo: videoInfo,
-                          outputPath: outputPath,
-                        ),
-                      ),
-                      const SizedBox(height: AppDimensions.spaceSm),
-                      Text(
-                        AppStrings.videoWillBeSavedTo,
-                        style: textTheme.bodySmall?.copyWith(
-                          color: c.textSecondary,
-                        ),
-                      ),
-                      Text(
-                        outputPath.isEmpty
-                            ? AppStrings.notAvailable
-                            : outputPath,
-                        style: textTheme.bodySmall?.copyWith(
-                          color: c.textSecondary,
-                        ),
-                      ),
-                    ],
-                    if (errorMessages.isNotEmpty) ...<Widget>[
-                      const SizedBox(height: AppDimensions.spacingLg),
-                      _HomeErrorPanel(
-                        messages: errorMessages,
-                        onRetry: () {
-                          ref.invalidate(formatsProvider);
-                          ref.invalidate(videoInfoProvider);
-                          ref.invalidate(isPlaylistProvider);
-                          ref.invalidate(playlistInfoProvider);
-                        },
-                      ),
-                    ],
-                  ],
+                          ],
+                          if (showLoadingSkeleton) ...<Widget>[
+                            const SizedBox(height: AppDimensions.spacingLg),
+                            const _LoadingSkeleton(),
+                          ],
+                          if (showVideoCard) ...<Widget>[
+                            const SizedBox(height: AppDimensions.spacingLg),
+                            _RevealPanel(
+                              animateKey: metadataUrl,
+                              child: RepaintBoundary(
+                                child: VideoInfoCard(videoInfo: videoInfo),
+                              ),
+                            ),
+                          ],
+                        ];
+
+                        final List<Widget> rightChildren = <Widget>[
+                          if (isPlaylist) ...<Widget>[
+                            Material(
+                              color: c.primary.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(
+                                AppDimensions.radiusMd,
+                              ),
+                              child: InkWell(
+                                onTap: hasPlaylistEntries
+                                    ? () => homeCtrl.startPlaylistDownloadsFromHome(
+                                          ref: ref,
+                                          context: context,
+                                        )
+                                    : null,
+                                borderRadius: BorderRadius.circular(
+                                  AppDimensions.radiusMd,
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: AppDimensions.paddingMd,
+                                    vertical: AppDimensions.spaceSm,
+                                  ),
+                                  child: Row(
+                                    children: <Widget>[
+                                      Icon(
+                                        Icons.playlist_play_rounded,
+                                        color: c.primary,
+                                        size: AppDimensions.iconMd,
+                                      ),
+                                      const SizedBox(width: AppDimensions.spaceSm),
+                                      Expanded(
+                                        child: Text(
+                                          playlistInfoAsync.maybeWhen(
+                                            data: (PlaylistInfo? pi) => pi != null
+                                                ? AppStrings.playlistVideosLine(
+                                                    pi.count,
+                                                  )
+                                                : AppStrings.playlistBanner,
+                                            loading: () => AppStrings.loading,
+                                            orElse: () => AppStrings.playlistBanner,
+                                          ),
+                                          style: textTheme.bodyMedium?.copyWith(
+                                            color: c.primary,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                      if (!hasPlaylistEntries)
+                                        SizedBox(
+                                          width: AppDimensions.iconSm,
+                                          height: AppDimensions.iconSm,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: c.primary,
+                                          ),
+                                        )
+                                      else
+                                        Icon(
+                                          Icons.chevron_right_rounded,
+                                          color: c.primary,
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: AppDimensions.spaceMd),
+                            AppButton(
+                              label: AppStrings.downloadButton,
+                              icon: const Icon(Icons.download_rounded),
+                              isLoading: !hasPlaylistEntries,
+                              onPressed: hasPlaylistEntries
+                                  ? () => homeCtrl.startPlaylistDownloadsFromHome(
+                                        ref: ref,
+                                        context: context,
+                                      )
+                                  : null,
+                            ),
+                          ],
+                          if (showFormatSelector) ...<Widget>[
+                            if (!isTablet) const SizedBox(height: AppDimensions.spacingLg),
+                            _RevealPanel(
+                              animateKey: metadataUrl,
+                              child: RepaintBoundary(
+                                child: FormatSelector(formats: formatsList),
+                              ),
+                            ),
+                          ],
+                          if (showNoFormats) ...<Widget>[
+                            const SizedBox(height: AppDimensions.spacingLg),
+                            Text(
+                              AppStrings.noFormatsFound,
+                              textAlign: TextAlign.center,
+                              style: textTheme.bodyMedium?.copyWith(
+                                color: c.textSecondary,
+                              ),
+                            ),
+                          ],
+                          if (showDownload) ...<Widget>[
+                            const SizedBox(height: AppDimensions.spacingLg),
+                            AppButton(
+                              label: AppStrings.downloadButton,
+                              icon: const Icon(Icons.download_rounded),
+                              onPressed: () => homeCtrl.startDownload(
+                                ref: ref,
+                                context: context,
+                                url: metadataUrl.isNotEmpty
+                                    ? metadataUrl
+                                    : draftUrl.trim(),
+                                format: selectedFormat,
+                                videoInfo: videoInfo,
+                                outputPath: outputPath,
+                              ),
+                            ),
+                            const SizedBox(height: AppDimensions.spaceSm),
+                            Text(
+                              AppStrings.videoWillBeSavedTo,
+                              style: textTheme.bodySmall?.copyWith(
+                                color: c.textSecondary,
+                              ),
+                            ),
+                            Text(
+                              outputPath.isEmpty
+                                  ? AppStrings.notAvailable
+                                  : outputPath,
+                              style: textTheme.bodySmall?.copyWith(
+                                color: c.textSecondary,
+                              ),
+                            ),
+                          ],
+                          if (errorMessages.isNotEmpty) ...<Widget>[
+                            const SizedBox(height: AppDimensions.spacingLg),
+                            _HomeErrorPanel(
+                              messages: errorMessages,
+                              onRetry: () {
+                                ref.invalidate(formatsProvider);
+                                ref.invalidate(videoInfoProvider);
+                                ref.invalidate(isPlaylistProvider);
+                                ref.invalidate(playlistInfoProvider);
+                              },
+                            ),
+                          ],
+                        ];
+
+                        if (isTablet) {
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Expanded(
+                                flex: 5,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: leftChildren,
+                                ),
+                              ),
+                              const SizedBox(width: AppDimensions.spaceXl),
+                              Expanded(
+                                flex: 5,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: rightChildren,
+                                ),
+                              ),
+                            ],
+                          );
+                        }
+
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            ...leftChildren,
+                            ...rightChildren,
+                          ],
+                        );
+                      },
+                    ),
+                  ),
                 ),
               ),
             ),
