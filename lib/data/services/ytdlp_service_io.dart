@@ -42,6 +42,10 @@ class YtdlpService {
       '--no-warnings',
       '--progress',
       '--no-playlist',
+      '--extractor-args',
+      'youtube:player_client=android,web',
+      '--parse-metadata',
+      ':(?P<comment>Downloaded with yt-dlp App)',
     ];
     if (settings.downloadSubtitles) {
       args.addAll(<String>[

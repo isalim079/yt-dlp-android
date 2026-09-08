@@ -12,7 +12,9 @@ import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/app_ui_colors.dart';
 import '../../../core/utils/logger.dart';
 import '../../../core/utils/permission_handler_util.dart';
+import '../../../data/models/app_download_record.dart';
 import '../../../data/providers/settings_providers.dart';
+import '../../../data/services/app_download_registry.dart';
 import '../../../data/services/ytdlp_platform_channel.dart';
 
 enum _FileCategory { all, videos, audio }
@@ -195,6 +197,17 @@ class _DownloadedFilesScreenState extends ConsumerState<DownloadedFilesScreen> {
       if (await file.exists()) {
         await file.delete();
       }
+      final List<AppDownloadRecord> records =
+          ref.read(appDownloadRegistryProvider);
+      final AppDownloadRecord? match = records
+          .cast<AppDownloadRecord?>()
+          .firstWhere((AppDownloadRecord? r) => r?.filePath == file.path,
+              orElse: () => null);
+      if (match != null) {
+        await ref
+            .read(appDownloadRegistryProvider.notifier)
+            .deleteRecord(match.id, deleteFileFromDisk: false);
+      }
       if (!mounted) {
         return;
       }
@@ -260,6 +273,8 @@ class _DownloadedFilesScreenState extends ConsumerState<DownloadedFilesScreen> {
   @override
   Widget build(BuildContext context) {
     final AppUiColors c = AppColors.of(context);
+    final List<AppDownloadRecord> appRecords =
+        ref.watch(appDownloadRegistryProvider);
 
     return Scaffold(
       backgroundColor: c.background,
@@ -490,12 +505,57 @@ class _DownloadedFilesScreenState extends ConsumerState<DownloadedFilesScreen> {
                               ),
                               subtitle: Padding(
                                 padding: const EdgeInsets.only(top: 4),
-                                child: Text(
-                                  '${_formatBytes(fileSize)} • ${modifiedTime != null ? _formatDate(modifiedTime) : ''}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context).textTheme.bodySmall
-                                      ?.copyWith(color: c.textSecondary),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: <Widget>[
+                                    Text(
+                                      '${_formatBytes(fileSize)} • ${modifiedTime != null ? _formatDate(modifiedTime) : ''}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context).textTheme.bodySmall
+                                          ?.copyWith(color: c.textSecondary),
+                                    ),
+                                    if (appRecords.any(
+                                      (AppDownloadRecord r) =>
+                                          r.filePath == file.path,
+                                    )) ...<Widget>[
+                                      const SizedBox(height: 3),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 1.5,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: c.success.withValues(alpha: 0.1),
+                                          borderRadius: BorderRadius.circular(4),
+                                          border: Border.all(
+                                            color: c.success.withValues(alpha: 0.3),
+                                            width: 0.8,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: <Widget>[
+                                            Icon(
+                                              Icons.verified_rounded,
+                                              size: 11,
+                                              color: c.success,
+                                            ),
+                                            const SizedBox(width: 3),
+                                            Text(
+                                              'App Download',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w600,
+                                                color: c.success,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ],
                                 ),
                               ),
                               trailing: Row(

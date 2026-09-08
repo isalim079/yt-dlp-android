@@ -119,12 +119,16 @@ class HomeScreenController extends AutoDisposeNotifier<HomeScreenState> {
     state = state.copyWith(outputPath: outputPath);
   }
 
-  /// Clears draft URL, metadata URL, and selected format.
+  /// Clears draft URL, metadata URL, and selected format, wiping cached futures.
   void clearSearch() {
     ref.read(urlInputProvider.notifier).state = '';
     ref.read(metadataRequestUrlProvider.notifier).state = '';
     ref.read(selectedFormatProvider.notifier).state = null;
-    state = state.copyWith(hasSearched: false);
+    ref.invalidate(formatsProvider);
+    ref.invalidate(videoInfoProvider);
+    ref.invalidate(isPlaylistProvider);
+    ref.invalidate(playlistInfoProvider);
+    state = state.copyWith(hasSearched: false, isSearching: false);
   }
 
   /// Pastes clipboard text into [controller] and updates [urlInputProvider].

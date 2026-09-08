@@ -366,6 +366,8 @@ class MainActivity : FlutterActivity() {
     ) {
         request.addOption("-o", "$outputPath/%(title)s.%(ext)s")
         request.addOption("--no-warnings")
+        request.addOption("--extractor-args", "youtube:player_client=android,web")
+        request.addOption("--parse-metadata", ":(?P<comment>Downloaded with yt-dlp App)")
         if (!isPlaylist) {
             request.addOption("--no-playlist")
         } else {

@@ -149,6 +149,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     final bool urlEmpty = draftUrl.trim().isEmpty;
     final bool showLoadingSkeleton =
+        !urlEmpty &&
         formatsAsync.isLoading &&
         metadataUrl.isNotEmpty &&
         !formatsAsync.hasError;
@@ -157,15 +158,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       AsyncData<VideoInfo?>(:final value) => value,
       _ => null,
     };
-    final bool showVideoCard = videoInfo != null;
+    final bool showVideoCard = !urlEmpty && videoInfo != null;
 
     final List<VideoFormat>? formatsList = switch (formatsAsync) {
       AsyncData<List<VideoFormat>>(:final value) => value,
       _ => null,
     };
     final bool showFormatSelector =
-        formatsList != null && formatsList.isNotEmpty;
+        !urlEmpty && formatsList != null && formatsList.isNotEmpty;
     final bool showNoFormats =
+        !urlEmpty &&
         formatsList != null &&
         formatsList.isEmpty &&
         metadataUrl.isNotEmpty &&
@@ -173,15 +175,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         !formatsAsync.isLoading &&
         !formatsAsync.hasError;
 
-    final bool showDownload = selectedFormat != null && videoInfo != null;
-    final bool isPlaylist = playlistAsync.maybeWhen(
-      data: (bool v) => v,
-      orElse: () => false,
-    );
-    final bool hasPlaylistEntries = playlistInfoAsync.maybeWhen(
-      data: (PlaylistInfo? pi) => pi != null && pi.entries.isNotEmpty,
-      orElse: () => false,
-    );
+    final bool showDownload =
+        !urlEmpty && selectedFormat != null && videoInfo != null;
+    final bool isPlaylist = !urlEmpty &&
+        playlistAsync.maybeWhen(
+          data: (bool v) => v,
+          orElse: () => false,
+        );
+    final bool hasPlaylistEntries = !urlEmpty &&
+        playlistInfoAsync.maybeWhen(
+          data: (PlaylistInfo? pi) => pi != null && pi.entries.isNotEmpty,
+          orElse: () => false,
+        );
 
     final List<String> errorMessages = <String>[];
     if (formatsAsync.hasError) {
@@ -192,11 +197,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
 
     final bool showPlaylistChip =
+        !urlEmpty &&
         homeState.hasSearched &&
         playlistAsync.maybeWhen(data: (bool v) => v, orElse: () => false);
 
     final bool showHomeEmpty =
-        !homeState.hasSearched && draftUrl.trim().isEmpty;
+        !homeState.hasSearched || urlEmpty;
 
     return Scaffold(
       backgroundColor: c.background,
@@ -360,6 +366,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             textInputAction: TextInputAction.search,
                             onChanged: (String v) {
                               ref.read(urlInputProvider.notifier).state = v;
+                              if (v.trim().isEmpty) {
+                                homeCtrl.clearSearch();
+                              }
                             },
                             onSubmitted: (String v) {
                               ref
@@ -380,7 +389,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                     ),
                                     onPressed: () {
                                       _urlController.clear();
-                                      ref.read(urlInputProvider.notifier).state = '';
+                                      homeCtrl.clearSearch();
                                     },
                                   ),
                           ),
@@ -595,7 +604,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               ),
                             ),
                           ],
-                          if (errorMessages.isNotEmpty) ...<Widget>[
+                          if (!urlEmpty && errorMessages.isNotEmpty) ...<Widget>[
                             const SizedBox(height: AppDimensions.spacingLg),
                             _HomeErrorPanel(
                               messages: errorMessages,

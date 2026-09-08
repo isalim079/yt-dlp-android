@@ -20,6 +20,7 @@ import '../models/video_format.dart';
 import '../providers/binary_path_provider.dart';
 import '../providers/settings_providers.dart';
 import '../providers/ytdlp_providers.dart';
+import 'app_download_registry.dart';
 import 'ytdlp_platform_channel.dart';
 
 /// Manages queued downloads, concurrent yt-dlp processes, and progress.
@@ -266,6 +267,11 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
       );
       AppLogger.i('Download completed: ${again.title}');
       _completionController?.add(again);
+      unawaited(
+        ref
+            .read(appDownloadRegistryProvider.notifier)
+            .registerCompleted(again),
+      );
       unawaited(_savePlayedState());
     } else {
       again.status = DownloadStatus.failed;
@@ -543,6 +549,11 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
     }
 
     _queue.removeWhere((DownloadItem e) => e.id == itemId);
+    unawaited(
+      ref
+          .read(appDownloadRegistryProvider.notifier)
+          .deleteRecord(itemId, deleteFileFromDisk: false),
+    );
     _emit();
     unawaited(_savePlayedState());
     return fileDeleted;
@@ -773,6 +784,11 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
       );
       AppLogger.i('Download completed: ${item.title}');
       _completionController?.add(item);
+      unawaited(
+        ref
+            .read(appDownloadRegistryProvider.notifier)
+            .registerCompleted(item),
+      );
       unawaited(_savePlayedState());
       _emit();
       _startNextQueued();
@@ -800,6 +816,11 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
           totalSize: '--',
         );
         _completionController?.add(item);
+        unawaited(
+          ref
+              .read(appDownloadRegistryProvider.notifier)
+              .registerCompleted(item),
+        );
       } else {
         item.status = DownloadStatus.failed;
         item.errorMessage = errorMsg;
@@ -826,7 +847,10 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
         line.contains('Adding metadata') ||
         line.contains('Embedding thumbnail');
 
-    if (line.contains('has already been downloaded') || line.contains('100%')) {
+    if (line.contains('has already been downloaded') ||
+        line.contains('100%') ||
+        line.contains('100.0%') ||
+        rawPercent >= 99.9) {
       _reachedFullDownload[processId] = true;
     }
 
