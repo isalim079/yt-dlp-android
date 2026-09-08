@@ -562,12 +562,13 @@ class _SettingsSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         _SectionTitle(title: title),
-        Container(
-          decoration: BoxDecoration(
+        Material(
+          color: c.surface,
+          shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppDimensions.radiusLg),
-            border: Border.all(color: c.border),
-            color: c.surface,
+            side: BorderSide(color: c.border),
           ),
+          clipBehavior: Clip.antiAlias,
           child: Column(
             children: <Widget>[
               for (int i = 0; i < children.length; i++) ...<Widget>[
@@ -689,14 +690,14 @@ class _PickerSheet<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppUiColors c = AppColors.of(context);
-    return Container(
-      margin: const EdgeInsets.all(AppDimensions.paddingMd),
-      decoration: BoxDecoration(
+    return Padding(
+      padding: const EdgeInsets.all(AppDimensions.paddingMd),
+      child: Material(
         color: c.surface,
         borderRadius: BorderRadius.circular(AppDimensions.radiusLg),
-      ),
-      child: SafeArea(
-        child: Column(
+        clipBehavior: Clip.antiAlias,
+        child: SafeArea(
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             const SizedBox(height: AppDimensions.spaceSm),
@@ -733,6 +734,7 @@ class _PickerSheet<T> extends StatelessWidget {
           ],
         ),
       ),
-    );
+    ),
+  );
   }
 }

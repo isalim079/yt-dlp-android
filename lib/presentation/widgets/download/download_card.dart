@@ -975,13 +975,12 @@ class _PlayerPickerSheet extends StatelessWidget {
       future: _resolvePlayablePath(),
       builder: (BuildContext context, AsyncSnapshot<String> snap) {
         final String path = snap.data ?? '${item.outputPath}/${item.title}.mp4';
-        return Container(
-          decoration: BoxDecoration(
-            color: c.surface,
-            borderRadius: BorderRadius.vertical(
-              top: Radius.circular(AppDimensions.bottomSheetRadius),
-            ),
+        return Material(
+          color: c.surface,
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(AppDimensions.bottomSheetRadius),
           ),
+          clipBehavior: Clip.antiAlias,
           child: SafeArea(
             top: false,
             child: Column(

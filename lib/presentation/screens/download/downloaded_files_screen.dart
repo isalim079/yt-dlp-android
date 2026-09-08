@@ -448,14 +448,15 @@ class _DownloadedFilesScreenState extends ConsumerState<DownloadedFilesScreen> {
                             // stat fallback
                           }
 
-                          return Container(
-                            decoration: BoxDecoration(
-                              color: c.surface,
+                          return Material(
+                            color: c.surface,
+                            shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(
                                 AppDimensions.cardRadius,
                               ),
-                              border: Border.all(color: c.border),
+                              side: BorderSide(color: c.border),
                             ),
+                            clipBehavior: Clip.antiAlias,
                             child: ListTile(
                               contentPadding: const EdgeInsets.symmetric(
                                 horizontal: AppDimensions.paddingMd,

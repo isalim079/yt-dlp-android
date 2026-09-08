@@ -29,19 +29,33 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
     super.initState();
     _previousOnError = FlutterError.onError;
     FlutterError.onError = (FlutterErrorDetails details) {
-      AppLogger.e('Uncaught Flutter error', details.exception, details.stack);
-      final String exceptionString = details.exception.toString();
-      final bool isOverflow = exceptionString.contains('overflowed');
-      final bool isLayoutError = details.library == 'rendering library';
+      _previousOnError?.call(details);
 
-      if (isOverflow || isLayoutError) {
-        AppLogger.w('Layout warning (non-fatal): $exceptionString');
+      // Ignore silent diagnostic messages and layout/rendering warnings
+      if (details.silent) {
         return;
       }
 
-      if (mounted) {
-        setState(() => _error = details);
+      final String exceptionString = details.exception.toString();
+      final bool isOverflow = exceptionString.contains('overflowed');
+      final bool isLayoutError = details.library == 'rendering library';
+      final bool isDiagnosticWarning = exceptionString.contains('invisible') ||
+          exceptionString.contains('ListTile') ||
+          exceptionString.contains('ink splashes');
+
+      if (isOverflow || isLayoutError || isDiagnosticWarning) {
+        AppLogger.w('Framework diagnostic warning (non-fatal): $exceptionString');
+        return;
       }
+
+      AppLogger.e('Uncaught Flutter error', details.exception, details.stack);
+
+      // Defer state update until after the current build frame completes
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _error == null) {
+          setState(() => _error = details);
+        }
+      });
     };
   }
 
@@ -51,18 +65,23 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
     super.dispose();
   }
 
+  void _retry() {
+    setState(() => _error = null);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_error != null) {
-      return _ErrorScreen(_error!);
+      return _ErrorScreen(details: _error!, onRetry: _retry);
     }
     return widget.child;
   }
 }
 
 class _ErrorScreen extends StatelessWidget {
-  const _ErrorScreen(this.details);
+  const _ErrorScreen({required this.details, required this.onRetry});
   final FlutterErrorDetails details;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -93,25 +112,41 @@ class _ErrorScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'An unexpected error occurred.\nPlease restart the app.',
+                  'An unexpected error occurred.\nYou can retry or restart the app.',
                   style: TextStyle(fontSize: 14, color: Color(0xFF757575)),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 32),
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFC62828),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(50),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: () => SystemNavigator.pop(),
+                        child: const Text('Close app'),
                       ),
                     ),
-                    onPressed: () => SystemNavigator.pop(),
-                    child: const Text('Close app'),
-                  ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size.fromHeight(50),
+                          backgroundColor: const Color(0xFFC62828),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: onRetry,
+                        child: const Text('Try again'),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
