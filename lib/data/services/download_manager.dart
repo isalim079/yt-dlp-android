@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/constants/app_strings.dart';
 import '../../core/utils/ytdlp_launch_command.dart';
 import '../../core/utils/logger.dart';
+import '../models/app_download_record.dart';
 import '../models/app_settings.dart';
 import '../models/download_item.dart';
 import '../models/download_progress.dart';
@@ -510,17 +511,26 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
   /// Permanently deletes the downloaded file from disk and removes item from queue.
   Future<bool> deleteDownloadedFile(String itemId) async {
     final DownloadItem? item = _findItem(itemId);
-    if (item == null) {
-      return false;
-    }
 
-    if (_activeProcesses.containsKey(itemId) ||
-        _activeAndroidProcessIds.contains(itemId)) {
+    if (_activeProcesses.containsKey(itemId) || _activeAndroidProcessIds.contains(itemId)) {
       await cancelDownload(itemId);
     }
 
+    // The registry stores the exact resolved filename. Prefer it over title
+    // matching, which can delete the wrong file when titles are similar.
+    final bool hasRegistryRecord = ref
+        .read(appDownloadRegistryProvider)
+        .any((AppDownloadRecord record) => record.id == itemId);
     bool fileDeleted = false;
-    if (item.outputPath.isNotEmpty) {
+    if (hasRegistryRecord) {
+      final bool removed = await ref
+          .read(appDownloadRegistryProvider.notifier)
+          .deleteRecord(itemId, deleteFileFromDisk: true);
+      if (!removed) {
+        return false;
+      }
+      fileDeleted = true;
+    } else if (item != null && item.outputPath.isNotEmpty) {
       try {
         final Directory dir = Directory(item.outputPath);
         if (await dir.exists()) {
@@ -549,11 +559,6 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
     }
 
     _queue.removeWhere((DownloadItem e) => e.id == itemId);
-    unawaited(
-      ref
-          .read(appDownloadRegistryProvider.notifier)
-          .deleteRecord(itemId, deleteFileFromDisk: false),
-    );
     _emit();
     unawaited(_savePlayedState());
     return fileDeleted;

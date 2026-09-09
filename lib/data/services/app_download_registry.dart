@@ -148,7 +148,10 @@ class AppDownloadRegistry extends Notifier<List<AppDownloadRecord>> {
     AppLogger.i('AppDownloadRegistry: registered "${item.title}" at $targetPath');
   }
 
-  /// Removes a download record from the registry and optionally deletes physical file.
+  /// Deletes a download record and, by default, its physical file.
+  ///
+  /// Returns `true` when the record was removed. If deletion fails, the record
+  /// is retained so the UI does not claim a file has been deleted when it has not.
   Future<bool> deleteRecord(String id, {bool deleteFileFromDisk = true}) async {
     AppDownloadRecord? target;
     final List<AppDownloadRecord> updated = <AppDownloadRecord>[];
@@ -164,23 +167,22 @@ class AppDownloadRegistry extends Notifier<List<AppDownloadRecord>> {
       return false;
     }
 
-    bool fileDeleted = false;
     if (deleteFileFromDisk && target.filePath.isNotEmpty) {
       try {
         final File file = File(target.filePath);
         if (await file.exists()) {
           await file.delete();
-          fileDeleted = true;
           AppLogger.i('AppDownloadRegistry: deleted file ${target.filePath}');
         }
       } catch (e, st) {
         AppLogger.w('AppDownloadRegistry: error deleting file: $e\n$st');
+        return false;
       }
     }
 
     state = List<AppDownloadRecord>.unmodifiable(updated);
     await _saveRecords(updated);
-    return fileDeleted;
+    return true;
   }
 
   /// Force refreshes registry against the filesystem.

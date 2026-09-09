@@ -762,9 +762,18 @@ class _AppDownloadedListView extends ConsumerWidget {
       return;
     }
 
-    await ref
-        .read(appDownloadRegistryProvider.notifier)
-        .deleteRecord(record.id, deleteFileFromDisk: true);
+    final bool deleted = await ref
+        .read(downloadManagerProvider.notifier)
+        .deleteDownloadedFile(record.id);
+
+    if (!deleted) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text(AppStrings.deleteFileFailed)),
+        );
+      }
+      return;
+    }
 
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

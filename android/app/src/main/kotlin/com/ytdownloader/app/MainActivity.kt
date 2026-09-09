@@ -76,6 +76,11 @@ class MainActivity : FlutterActivity() {
                             request.addOption("-J")
                             request.addOption("--no-playlist")
                             request.addOption("--no-warnings")
+                            // The selected format ID must come from the same YouTube
+                            // player clients used by the eventual download. Otherwise
+                            // YouTube can return an ID here that is unavailable when
+                            // `download` reruns yt-dlp with android,web clients.
+                            request.addOption("--extractor-args", "youtube:player_client=android,web")
                             val response = YoutubeDL.getInstance().execute(request)
                             withContext(Dispatchers.Main) {
                                 result.success(response.out)
