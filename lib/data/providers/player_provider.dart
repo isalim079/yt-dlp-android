@@ -373,20 +373,16 @@ class PlayerController extends Notifier<PlayerUiState> {
         if (gen != _generation) {
           return;
         }
-        if (opened != null &&
-            !playbackFallbackImproves(opened!, resolved) &&
-            opened!.primaryUrl == resolved.primaryUrl) {
+        if (opened != null) {
           state = state.copyWith(resolved: resolved);
           return;
         }
         _opening = true;
         await ready;
+        await _waitForSurface();
         if (gen != _generation) {
           return;
         }
-        final bool firstOpen = opened == null;
-        final Duration? swapAt =
-            firstOpen ? keepAt : _player?.state.position;
         state = state.copyWith(
           resolved: resolved,
           loading: false,
@@ -398,12 +394,12 @@ class PlayerController extends Notifier<PlayerUiState> {
         }
         opened = resolved;
         int resumeMs = 0;
-        if (swapAt != null && swapAt.inMilliseconds > 500) {
-          resumeMs = swapAt.inMilliseconds;
-        } else if (firstOpen && !preservePosition) {
+        if (keepAt != null && keepAt.inMilliseconds > 500) {
+          resumeMs = keepAt.inMilliseconds;
+        } else if (!preservePosition) {
           resumeMs = await ref.read(libraryStoreProvider).positionFor(video.id);
         }
-        final int minSeekMs = firstOpen && !preservePosition ? 3000 : 500;
+        final int minSeekMs = preservePosition ? 500 : 3000;
         if (resumeMs > minSeekMs) {
           try {
             await _player?.seek(Duration(milliseconds: resumeMs)).timeout(
@@ -432,12 +428,11 @@ class PlayerController extends Notifier<PlayerUiState> {
         forceRefresh: forceRefresh,
         mintPoTokens: PlaybackPoTokenService.mint,
         onPlayable: (PlaybackResolved readyStream) {
-          applyChain = applyChain.then((_) => applyPlayable(readyStream)).catchError((
-            Object error,
-            StackTrace stack,
-          ) {
-            AppLogger.w('apply playable failed: $error\n$stack');
-          });
+          applyChain = applyChain
+              .then((_) => applyPlayable(readyStream))
+              .catchError((Object error, StackTrace stack) {
+                AppLogger.w('apply playable failed: $error\n$stack');
+              });
         },
       );
       await applyChain;
@@ -445,9 +440,6 @@ class PlayerController extends Notifier<PlayerUiState> {
         return;
       }
       if (opened == null) {
-        await applyPlayable(resolved);
-      } else if (playbackFallbackImproves(opened!, resolved) ||
-          opened!.primaryUrl != resolved.primaryUrl) {
         await applyPlayable(resolved);
       } else {
         state = state.copyWith(
@@ -469,6 +461,28 @@ class PlayerController extends Notifier<PlayerUiState> {
       if (gen == _generation) {
         _opening = false;
       }
+    }
+  }
+
+  Future<void> _waitForSurface() async {
+    final VideoController? controller = _videoController;
+    if (controller == null || controller.id.value != null) {
+      return;
+    }
+    final Completer<void> ready = Completer<void>();
+    void listener() {
+      if (controller.id.value != null && !ready.isCompleted) {
+        ready.complete();
+      }
+    }
+
+    controller.id.addListener(listener);
+    try {
+      await ready.future.timeout(const Duration(milliseconds: 400));
+    } on TimeoutException {
+      // Video widget may attach on the first decoded frame.
+    } finally {
+      controller.id.removeListener(listener);
     }
   }
 
