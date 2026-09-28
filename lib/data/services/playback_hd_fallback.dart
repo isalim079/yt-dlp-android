@@ -9,6 +9,9 @@ import '../models/playback_po_token.dart';
 import '../models/playback_resolved.dart';
 import 'ytdlp_service.dart';
 
+/// Fast first-open client: muxed itag 18 is usually present.
+const String kPlaybackStartClient = 'android,web';
+
 /// Client that still returns direct HTTPS adaptive URLs for many SABR videos.
 const String kPlaybackHdFallbackClient = 'android_vr,web';
 
@@ -108,7 +111,23 @@ Future<PlaybackResolved?> warmPlaybackHdLadder({
   if (identical(best, start) || !playbackFallbackImproves(start, best)) {
     return null;
   }
-  return best;
+  return playbackKeepStartProgressive(start, best);
+}
+
+/// HD JSON often omits muxed itag 18; keep the 360 URL for instant fallback.
+PlaybackResolved playbackKeepStartProgressive(
+  PlaybackResolved start,
+  PlaybackResolved hd,
+) {
+  final String? startProgressive = start.progressiveUrl;
+  if (startProgressive == null || startProgressive.isEmpty) {
+    return hd;
+  }
+  final String? hdProgressive = hd.progressiveUrl;
+  if (hdProgressive != null && hdProgressive.isNotEmpty) {
+    return hd;
+  }
+  return hd.copyWith(progressiveUrl: startProgressive);
 }
 
 Future<PlaybackResolved?> _fetchClient({

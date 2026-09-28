@@ -116,6 +116,11 @@ class PlayerController extends Notifier<PlayerUiState> {
   Timer? _historyTimer;
   int _generation = 0;
   bool _opening = false;
+  bool _recoveringStream = false;
+  int _streamErrorRetries = 0;
+  String? _safeProgressiveUrl;
+  Map<String, String> _safeProgressiveHeaders = const <String, String>{};
+  String? _lastOpenedUrl;
 
   /// Underlying player, created lazily.
   Player? get rawPlayer => _player;
@@ -131,32 +136,19 @@ class PlayerController extends Notifier<PlayerUiState> {
     return const PlayerUiState();
   }
 
-  PlaybackQuality _qualityFromSettings(AppSettings settings) {
-    return switch (settings.playbackQuality) {
-      PlaybackQualitySetting.auto => PlaybackQuality.auto,
-      PlaybackQualitySetting.p2160 => PlaybackQuality.p2160,
-      PlaybackQualitySetting.p1440 => PlaybackQuality.p1440,
-      PlaybackQualitySetting.p1080 => PlaybackQuality.p1080,
-      PlaybackQualitySetting.p720 => PlaybackQuality.p720,
-      PlaybackQualitySetting.p480 => PlaybackQuality.p480,
-      PlaybackQualitySetting.p360 => PlaybackQuality.p360,
-    };
-  }
-
   /// Starts playback of [video], optionally with a [queue].
   Future<void> play(
     BrowseVideo video, {
     List<BrowseVideo>? queue,
     int index = 0,
     bool expanded = true,
-    PlaybackQuality? quality,
   }) async {
-    final AppSettings? settings = ref.read(settingsProvider).valueOrNull;
-    final PlaybackQuality q =
-        quality ?? _qualityFromSettings(settings ?? AppSettings.defaults);
+    _streamErrorRetries = 0;
+    _safeProgressiveUrl = null;
+    _lastOpenedUrl = null;
     state = state.copyWith(
       video: video,
-      quality: q,
+      quality: PlaybackQuality.p360,
       expanded: expanded,
       loading: true,
       clearError: true,
@@ -276,7 +268,6 @@ class PlayerController extends Notifier<PlayerUiState> {
       queue: state.queue,
       index: next,
       expanded: state.expanded,
-      quality: state.quality,
     );
   }
 
@@ -406,14 +397,16 @@ class PlayerController extends Notifier<PlayerUiState> {
       final PlaybackResolved start = await resolvePlaybackStart(
         ytdlp: ytdlp,
         url: video.url,
-        preferredClient: settings.playerClient.ytDlpValue,
+        preferredClient: kPlaybackStartClient,
         forceRefresh: forceRefresh,
       );
       if (gen != _generation) {
         return;
       }
+      _rememberSafeProgressive(start);
       state = state.copyWith(
         resolved: start,
+        quality: PlaybackQuality.p360,
         loading: false,
         clearError: true,
       );
@@ -451,7 +444,7 @@ class PlayerController extends Notifier<PlayerUiState> {
         _warmHdInBackground(
           gen: gen,
           url: video.url,
-          preferredClient: settings.playerClient.ytDlpValue,
+          preferredClient: kPlaybackStartClient,
           start: start,
           ytdlp: ytdlp,
         ),
@@ -497,6 +490,7 @@ class PlayerController extends Notifier<PlayerUiState> {
         'HD ladder ready max=${playbackMaxAvailableHeight(hd)}',
       );
       state = state.copyWith(resolved: hd);
+      _rememberSafeProgressive(hd);
     } on Object catch (error, stack) {
       AppLogger.w('HD warm failed: $error\n$stack');
     }
@@ -575,9 +569,14 @@ class PlayerController extends Notifier<PlayerUiState> {
     final Map<String, String> headers = resolved.headers;
     try {
       final bool emulator = await PlatformUtils.isAndroidEmulator;
-      final bool useProgressive = (preferProgressive || emulator) &&
-          resolved.progressiveUrl != null &&
+      final bool hasProgressive = resolved.progressiveUrl != null &&
           resolved.progressiveUrl!.isNotEmpty;
+      final bool useProgressive = (preferProgressive || emulator) && hasProgressive;
+      AppLogger.i(
+        'open playback format=${resolved.formatId} height=${resolved.height} '
+        'mode=${resolved.mode.name} preferProgressive=$preferProgressive '
+        'useProgressive=$useProgressive',
+      );
       if (useProgressive) {
         await _openMedia(
           player,
@@ -585,6 +584,10 @@ class PlayerController extends Notifier<PlayerUiState> {
         );
         _logPlaybackVisibility();
         return;
+      }
+      if (preferProgressive &&
+          ((resolved.height ?? 0) > 360 || resolved.videoUrl == null)) {
+        throw const YtdlpException(AppStrings.errorNoPlaybackStreams);
       }
       if (resolved.mode == PlaybackMode.adaptive &&
           resolved.videoUrl != null) {
@@ -636,6 +639,7 @@ class PlayerController extends Notifier<PlayerUiState> {
     Media media, {
     bool play = true,
   }) async {
+    _lastOpenedUrl = media.uri;
     try {
       await player.open(media, play: play).timeout(const Duration(seconds: 12));
     } on TimeoutException {
@@ -664,8 +668,54 @@ class PlayerController extends Notifier<PlayerUiState> {
     );
   }
 
+  void _rememberSafeProgressive(PlaybackResolved resolved) {
+    final String? url = resolved.progressiveUrl;
+    if (url == null || url.isEmpty) {
+      return;
+    }
+    _safeProgressiveUrl = url;
+    _safeProgressiveHeaders = Map<String, String>.from(resolved.headers);
+  }
+
+  Future<bool> _reopenSafeProgressive() async {
+    final Player? player = _player;
+    final String? url = _safeProgressiveUrl;
+    if (player == null || url == null || url.isEmpty) {
+      return false;
+    }
+    final Duration? keepAt = player.state.position;
+    _recoveringStream = true;
+    _opening = true;
+    try {
+      AppLogger.w('CDN open failed; falling back to 360 progressive');
+      await _openMedia(
+        player,
+        Media(url, httpHeaders: _safeProgressiveHeaders),
+      );
+      if (keepAt != null && keepAt.inMilliseconds > 500) {
+        try {
+          await player.seek(keepAt).timeout(const Duration(seconds: 3));
+        } on TimeoutException {
+          AppLogger.w('fallback seek timed out');
+        }
+      }
+      state = state.copyWith(
+        loading: false,
+        quality: PlaybackQuality.p360,
+        clearError: true,
+      );
+      return true;
+    } on Object catch (error, stack) {
+      AppLogger.w('progressive fallback failed: $error\n$stack');
+      return false;
+    } finally {
+      _opening = false;
+      _recoveringStream = false;
+    }
+  }
+
   Future<void> _onPlayerError(String message) async {
-    if (_opening) {
+    if (_opening || _recoveringStream) {
       return;
     }
     final String lower = message.toLowerCase();
@@ -679,8 +729,28 @@ class PlayerController extends Notifier<PlayerUiState> {
     if (video == null) {
       return;
     }
-    AppLogger.w('player error, re-resolving: $message');
-    state = state.copyWith(loading: true, error: AppStrings.errorPlaybackFailed);
+    AppLogger.w('player error: $message');
+    final bool failedOnSafe = _safeProgressiveUrl != null &&
+        _lastOpenedUrl != null &&
+        _lastOpenedUrl == _safeProgressiveUrl;
+    if (!failedOnSafe) {
+      final bool recovered = await _reopenSafeProgressive();
+      if (recovered) {
+        return;
+      }
+    }
+    if (_streamErrorRetries >= 1) {
+      state = state.copyWith(
+        loading: false,
+        error: AppStrings.errorPlaybackFailed,
+      );
+      return;
+    }
+    _streamErrorRetries += 1;
+    state = state.copyWith(
+      loading: true,
+      error: AppStrings.errorPlaybackFailed,
+    );
     await _startAt360(forceRefresh: true, preservePosition: true);
   }
 

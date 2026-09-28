@@ -102,6 +102,26 @@ class PlaybackResolved {
   /// Distinct video heights in the JSON that have a direct HTTP URL.
   final List<int> availableHeights;
 
+  /// Copy with overrides.
+  PlaybackResolved copyWith({
+    String? progressiveUrl,
+  }) {
+    return PlaybackResolved(
+      info: info,
+      mode: mode,
+      headers: headers,
+      quality: quality,
+      videoUrl: videoUrl,
+      audioUrl: audioUrl,
+      progressiveUrl: progressiveUrl ?? this.progressiveUrl,
+      hlsUrl: hlsUrl,
+      height: height,
+      expiresAt: expiresAt,
+      formatId: formatId,
+      availableHeights: availableHeights,
+    );
+  }
+
   /// Primary media URL the player should open first.
   String get primaryUrl {
     switch (mode) {

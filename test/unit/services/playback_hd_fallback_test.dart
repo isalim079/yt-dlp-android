@@ -54,7 +54,25 @@ void main() {
       expect(hd, isNotNull);
       expect(playbackMaxAvailableHeight(hd!), 2160);
       expect(hd.offersQuality(PlaybackQuality.p1080), isTrue);
+      expect(hd.progressiveUrl, start.progressiveUrl);
       expect(start.height, 360);
+    });
+
+    test('keeps muxed 360 when HD JSON has no progressive URL', () {
+      final PlaybackResolved start = PlaybackResolver.fromJson(
+        _payload360(),
+        quality: PlaybackQuality.p360,
+      );
+      final PlaybackResolved hd = PlaybackResolver.fromJson(
+        _payloadFullLadder(),
+        quality: PlaybackQuality.auto,
+      );
+
+      final PlaybackResolved merged = playbackKeepStartProgressive(start, hd);
+
+      expect(hd.progressiveUrl, isNull);
+      expect(merged.progressiveUrl, start.progressiveUrl);
+      expect(playbackMaxAvailableHeight(merged), 2160);
     });
 
     test('skips mweb when android_vr already has HD', () async {
