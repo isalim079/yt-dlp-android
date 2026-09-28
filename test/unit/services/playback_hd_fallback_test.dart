@@ -9,46 +9,71 @@ import 'package:yxz_tube/data/services/playback_resolver.dart';
 import 'package:yxz_tube/data/services/ytdlp_service.dart';
 
 void main() {
-  group('resolvePlaybackWithHdFallback', () {
-    test('360-only preferred JSON triggers one android_vr retry', () async {
+  group('resolvePlaybackStart', () {
+    test('uses only the preferred client and returns 360', () async {
       final _FakeYtdlp ytdlp = _FakeYtdlp(<String, String>{
         'android,web': _payload360(),
         kPlaybackHdFallbackClient: _payloadFullLadder(),
       });
 
-      final PlaybackResolved resolved = await resolvePlaybackWithHdFallback(
+      final PlaybackResolved resolved = await resolvePlaybackStart(
         ytdlp: ytdlp,
         url: 'https://www.youtube.com/watch?v=sRWcJrMTtMI',
-        quality: PlaybackQuality.auto,
         preferredClient: 'android,web',
         forceRefresh: false,
       );
 
-      expect(
-        ytdlp.clients.toSet(),
-        <String>{'android,web', kPlaybackHdFallbackClient},
+      expect(ytdlp.clients, <String>['android,web']);
+      expect(resolved.height, 360);
+      expect(resolved.progressiveUrl, isNotNull);
+    });
+  });
+
+  group('warmPlaybackHdLadder', () {
+    test('loads android_vr after 360 start and does not reopen via callback',
+        () async {
+      final _FakeYtdlp ytdlp = _FakeYtdlp(<String, String>{
+        'android,web': _payload360(),
+        kPlaybackHdFallbackClient: _payloadFullLadder(),
+      });
+      final PlaybackResolved start = await resolvePlaybackStart(
+        ytdlp: ytdlp,
+        url: 'https://www.youtube.com/watch?v=sRWcJrMTtMI',
+        preferredClient: 'android,web',
+        forceRefresh: false,
       );
-      expect(resolved.offersQuality(PlaybackQuality.p2160), isTrue);
-      expect(resolved.offersQuality(PlaybackQuality.p1440), isTrue);
-      expect(resolved.offersQuality(PlaybackQuality.p1080), isTrue);
-      expect(resolved.offersQuality(PlaybackQuality.p720), isTrue);
-      expect(resolved.offersQuality(PlaybackQuality.p480), isTrue);
-      expect(playbackMaxAvailableHeight(resolved), 2160);
+
+      final PlaybackResolved? hd = await warmPlaybackHdLadder(
+        ytdlp: ytdlp,
+        url: 'https://www.youtube.com/watch?v=sRWcJrMTtMI',
+        preferredClient: 'android,web',
+        start: start,
+      );
+
+      expect(ytdlp.clients, <String>['android,web', kPlaybackHdFallbackClient]);
+      expect(hd, isNotNull);
+      expect(playbackMaxAvailableHeight(hd!), 2160);
+      expect(hd.offersQuality(PlaybackQuality.p1080), isTrue);
+      expect(start.height, 360);
     });
 
-    test('full preferred JSON does not retry android_vr', () async {
+    test('skips mweb when android_vr already has HD', () async {
       final _FakeYtdlp ytdlp = _FakeYtdlp(<String, String>{
-        'android,web': _payloadFullLadder(),
-        kPlaybackHdFallbackClient: _payload360(),
+        'android,web': _payload360(),
+        kPlaybackHdFallbackClient: _payloadFullLadder(),
+        kPlaybackMwebClient: _payloadFullLadder(),
       });
       int mints = 0;
+      final PlaybackResolved start = PlaybackResolver.fromJson(
+        _payload360(),
+        quality: PlaybackQuality.p360,
+      );
 
-      final PlaybackResolved resolved = await resolvePlaybackWithHdFallback(
+      final PlaybackResolved? hd = await warmPlaybackHdLadder(
         ytdlp: ytdlp,
         url: 'https://www.youtube.com/watch?v=sRWcJrMTtMI',
-        quality: PlaybackQuality.auto,
         preferredClient: 'android,web',
-        forceRefresh: false,
+        start: start,
         mintPoTokens: (String videoId) async {
           mints += 1;
           return null;
@@ -56,63 +81,26 @@ void main() {
       );
 
       expect(mints, 0);
-      expect(ytdlp.clients, contains('android,web'));
-      expect(resolved.height, 1080);
-      expect(playbackNeedsExtraClient(resolved), isFalse);
-    });
-
-    test('fallback failure retains 360p preferred result', () async {
-      final _FakeYtdlp ytdlp = _FakeYtdlp(<String, String>{
-        'android,web': _payload360(),
-      });
-
-      final PlaybackResolved resolved = await resolvePlaybackWithHdFallback(
-        ytdlp: ytdlp,
-        url: 'https://www.youtube.com/watch?v=sRWcJrMTtMI',
-        quality: PlaybackQuality.auto,
-        preferredClient: 'android,web',
-        forceRefresh: false,
-      );
-
-      expect(
-        ytdlp.clients.toSet(),
-        <String>{'android,web', kPlaybackHdFallbackClient},
-      );
-      expect(resolved.height, 360);
-      expect(resolved.offersQuality(PlaybackQuality.p1080), isFalse);
-    });
-
-    test('android_vr preferred client does not retry itself', () async {
-      final _FakeYtdlp ytdlp = _FakeYtdlp(<String, String>{
-        kPlaybackHdFallbackClient: _payload360(),
-      });
-
-      final PlaybackResolved resolved = await resolvePlaybackWithHdFallback(
-        ytdlp: ytdlp,
-        url: 'https://www.youtube.com/watch?v=sRWcJrMTtMI',
-        quality: PlaybackQuality.auto,
-        preferredClient: kPlaybackHdFallbackClient,
-        forceRefresh: false,
-      );
-
       expect(ytdlp.clients, <String>[kPlaybackHdFallbackClient]);
-      expect(resolved.height, 360);
+      expect(playbackMaxAvailableHeight(hd!), 2160);
     });
 
     test('mweb+PO runs only after VR still has no HD', () async {
       final _FakeYtdlp ytdlp = _FakeYtdlp(<String, String>{
-        'android,web': _payload360(),
         kPlaybackHdFallbackClient: _payload360(),
         kPlaybackMwebClient: _payloadFullLadder(),
       });
       int mints = 0;
+      final PlaybackResolved start = PlaybackResolver.fromJson(
+        _payload360(),
+        quality: PlaybackQuality.p360,
+      );
 
-      final PlaybackResolved resolved = await resolvePlaybackWithHdFallback(
+      final PlaybackResolved? hd = await warmPlaybackHdLadder(
         ytdlp: ytdlp,
         url: 'https://www.youtube.com/watch?v=sRWcJrMTtMI',
-        quality: PlaybackQuality.auto,
         preferredClient: 'android,web',
-        forceRefresh: false,
+        start: start,
         mintPoTokens: (String videoId) async {
           mints += 1;
           expect(videoId, 'sRWcJrMTtMI');
@@ -127,79 +115,57 @@ void main() {
       expect(mints, 1);
       expect(
         ytdlp.clients.toSet(),
-        <String>{
-          'android,web',
-          kPlaybackHdFallbackClient,
-          kPlaybackMwebClient,
-        },
+        <String>{kPlaybackHdFallbackClient, kPlaybackMwebClient},
       );
       expect(ytdlp.poTokens.single, contains('mweb.player+PLAYERTOKEN'));
-      expect(ytdlp.poTokens.single, contains('mweb.gvs+GVSTOKEN'));
-      expect(resolved.offersQuality(PlaybackQuality.p2160), isTrue);
+      expect(playbackMaxAvailableHeight(hd!), 2160);
     });
 
-    test('mint failure retains 360p after VR', () async {
+    test('returns null when VR fails and start stays 360', () async {
       final _FakeYtdlp ytdlp = _FakeYtdlp(<String, String>{
         'android,web': _payload360(),
-        kPlaybackHdFallbackClient: _payload360(),
-        kPlaybackMwebClient: _payloadFullLadder(),
       });
+      final PlaybackResolved start = PlaybackResolver.fromJson(
+        _payload360(),
+        quality: PlaybackQuality.p360,
+      );
 
-      final PlaybackResolved resolved = await resolvePlaybackWithHdFallback(
+      final PlaybackResolved? hd = await warmPlaybackHdLadder(
         ytdlp: ytdlp,
         url: 'https://www.youtube.com/watch?v=sRWcJrMTtMI',
-        quality: PlaybackQuality.auto,
         preferredClient: 'android,web',
-        forceRefresh: false,
-        mintPoTokens: (String videoId) async => null,
+        start: start,
       );
 
-      expect(
-        ytdlp.clients.toSet(),
-        <String>{'android,web', kPlaybackHdFallbackClient},
-      );
-      expect(resolved.height, 360);
+      expect(hd, isNull);
     });
 
-    test('onPlayable starts 360 before slower HD client finishes', () async {
-      final _FakeYtdlp ytdlp = _FakeYtdlp(
-        <String, String>{
-          'android,web': _payload360(),
-          kPlaybackHdFallbackClient: _payloadFullLadder(),
-        },
-        delays: <String, Duration>{
-          'android,web': const Duration(milliseconds: 20),
-          kPlaybackHdFallbackClient: const Duration(milliseconds: 80),
-        },
+    test('does not retry VR when start client is already android_vr', () async {
+      final _FakeYtdlp ytdlp = _FakeYtdlp(<String, String>{
+        kPlaybackHdFallbackClient: _payload360(),
+      });
+      final PlaybackResolved start = PlaybackResolver.fromJson(
+        _payload360(),
+        quality: PlaybackQuality.p360,
       );
-      final List<int> heights = <int>[];
 
-      final PlaybackResolved resolved = await resolvePlaybackWithHdFallback(
+      final PlaybackResolved? hd = await warmPlaybackHdLadder(
         ytdlp: ytdlp,
         url: 'https://www.youtube.com/watch?v=sRWcJrMTtMI',
-        quality: PlaybackQuality.auto,
-        preferredClient: 'android,web',
-        forceRefresh: false,
-        onPlayable: (PlaybackResolved ready) {
-          heights.add(playbackMaxAvailableHeight(ready));
-        },
+        preferredClient: kPlaybackHdFallbackClient,
+        start: start,
       );
 
-      expect(heights.first, 360);
-      expect(heights.last, 2160);
-      expect(playbackMaxAvailableHeight(resolved), 2160);
+      expect(ytdlp.clients, isEmpty);
+      expect(hd, isNull);
     });
   });
 }
 
 class _FakeYtdlp extends YtdlpService {
-  _FakeYtdlp(
-    this._jsonByClient, {
-    this.delays = const <String, Duration>{},
-  }) : super(binaryPath: '/mock/yt-dlp');
+  _FakeYtdlp(this._jsonByClient) : super(binaryPath: '/mock/yt-dlp');
 
   final Map<String, String> _jsonByClient;
-  final Map<String, Duration> delays;
   final List<String> clients = <String>[];
   final List<String> poTokens = <String>[];
 
@@ -211,10 +177,6 @@ class _FakeYtdlp extends YtdlpService {
     bool forceRefresh = false,
     String? poToken,
   }) async {
-    final Duration delay = delays[playerClient] ?? Duration.zero;
-    if (delay > Duration.zero) {
-      await Future<void>.delayed(delay);
-    }
     clients.add(playerClient);
     if (poToken != null) {
       poTokens.add(poToken);

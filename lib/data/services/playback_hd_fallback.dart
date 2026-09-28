@@ -1,4 +1,4 @@
-/// One extra YouTube client when the preferred JSON has no playable HD.
+/// Fast 360 start, then a background HD ladder for the quality picker.
 library;
 
 import '../../core/constants/app_strings.dart';
@@ -15,109 +15,88 @@ const String kPlaybackHdFallbackClient = 'android_vr,web';
 /// Web client used with minted BotGuard PO tokens.
 const String kPlaybackMwebClient = 'mweb';
 
-/// Called as soon as any playable result exists, then again if a taller ladder
-/// arrives. Used to start playback before slower HD clients finish.
-typedef PlaybackPlayableCallback = void Function(PlaybackResolved resolved);
-
-/// Resolves playback, racing the preferred client with Android VR.
-///
-/// [onPlayable] is invoked immediately when the first stream is ready, then
-/// again if a later client exposes a taller HTTPS ladder. mweb+PO runs only
-/// if neither client has HD.
-Future<PlaybackResolved> resolvePlaybackWithHdFallback({
+/// Preferred-client extract forced to 360p. Does not start android_vr or mweb.
+Future<PlaybackResolved> resolvePlaybackStart({
   required YtdlpService ytdlp,
   required String url,
-  required PlaybackQuality quality,
   required String preferredClient,
   required bool forceRefresh,
-  Duration preferredTimeout = const Duration(seconds: 90),
-  Duration fallbackTimeout = const Duration(seconds: 20),
-  Future<PlaybackPoToken?> Function(String videoId)? mintPoTokens,
-  PlaybackPlayableCallback? onPlayable,
+  Duration timeout = const Duration(seconds: 90),
 }) async {
-  PlaybackResolved? best;
-
-  void consider(PlaybackResolved next) {
-    if (best == null || playbackFallbackImproves(best!, next)) {
-      best = next;
-      onPlayable?.call(next);
+  try {
+    final PlaybackResolved resolved = await ytdlp
+        .resolvePlayback(
+          url,
+          quality: PlaybackQuality.p360,
+          playerClient: preferredClient,
+          forceRefresh: forceRefresh,
+        )
+        .timeout(timeout);
+    if (!resolved.isPlayable) {
+      throw const YtdlpException(AppStrings.errorNoPlaybackStreams);
     }
+    return resolved;
+  } on YtdlpException {
+    rethrow;
+  } on Object catch (error, stack) {
+    AppLogger.w('resolve start via $preferredClient failed: $error\n$stack');
+    throw const YtdlpException(AppStrings.errorNoPlaybackStreams);
   }
+}
 
-  Future<PlaybackResolved?> fetchClient(
-    String client, {
-    required bool force,
-    String? poToken,
-    required Duration timeout,
-  }) async {
-    try {
-      return await ytdlp
-          .resolvePlayback(
-            url,
-            quality: quality,
-            playerClient: client,
-            forceRefresh: force,
-            poToken: poToken,
-          )
-          .timeout(timeout);
-    } on Object catch (error, stack) {
-      AppLogger.w('resolve via $client failed: $error\n$stack');
-      return null;
-    }
-  }
-
-  final List<Future<void>> inflight = <Future<void>>[
-    fetchClient(
-      preferredClient,
-      force: forceRefresh,
-      timeout: preferredTimeout,
-    ).then((PlaybackResolved? resolved) {
-      if (resolved != null) {
-        consider(resolved);
-      }
-    }),
-  ];
+/// Background HD JSON. Never meant to open the player by itself.
+///
+/// Tries [kPlaybackHdFallbackClient], then mweb+PO if still no height ≥ 720.
+/// Returns null when nothing taller than [start] is available.
+Future<PlaybackResolved?> warmPlaybackHdLadder({
+  required YtdlpService ytdlp,
+  required String url,
+  required String preferredClient,
+  required PlaybackResolved start,
+  Duration timeout = const Duration(seconds: 20),
+  Future<PlaybackPoToken?> Function(String videoId)? mintPoTokens,
+}) async {
+  PlaybackResolved best = start;
 
   if (preferredClient != kPlaybackHdFallbackClient) {
-    inflight.add(
-      fetchClient(
-        kPlaybackHdFallbackClient,
-        force: true,
-        timeout: fallbackTimeout,
-      ).then((PlaybackResolved? resolved) {
-        if (resolved != null) {
-          consider(resolved);
-          AppLogger.i(
-            'android_vr result height=${resolved.height} '
-            'max=${playbackMaxAvailableHeight(resolved)} '
-            'needsMweb=${playbackNeedsExtraClient(best ?? resolved)}',
-          );
-        }
-      }),
+    final PlaybackResolved? vr = await _fetchClient(
+      ytdlp: ytdlp,
+      url: url,
+      quality: PlaybackQuality.auto,
+      client: kPlaybackHdFallbackClient,
+      forceRefresh: true,
+      timeout: timeout,
     );
+    if (vr != null) {
+      AppLogger.i(
+        'android_vr result height=${vr.height} '
+        'max=${playbackMaxAvailableHeight(vr)} '
+        'needsMweb=${playbackNeedsExtraClient(vr)}',
+      );
+      if (playbackFallbackImproves(best, vr)) {
+        best = vr;
+      }
+    }
   }
 
-  await Future.wait(inflight);
-
-  if (best != null && !playbackNeedsExtraClient(best!)) {
-    return best!;
-  }
-
-  if (mintPoTokens != null) {
+  if (playbackNeedsExtraClient(best) && mintPoTokens != null) {
     final String? videoId = YoutubeUrls.videoId(url);
     if (videoId != null) {
       try {
         AppLogger.i('BotGuard mint then mweb for $videoId');
         final PlaybackPoToken? tokens = await mintPoTokens(videoId);
         if (tokens != null) {
-          final PlaybackResolved? mweb = await fetchClient(
-            kPlaybackMwebClient,
-            force: true,
+          final PlaybackResolved? mweb = await _fetchClient(
+            ytdlp: ytdlp,
+            url: url,
+            quality: PlaybackQuality.auto,
+            client: kPlaybackMwebClient,
+            forceRefresh: true,
             poToken: tokens.extractorValue,
-            timeout: fallbackTimeout,
+            timeout: timeout,
           );
-          if (mweb != null) {
-            consider(mweb);
+          if (mweb != null && playbackFallbackImproves(best, mweb)) {
+            best = mweb;
           }
         }
       } on Object catch (error, stack) {
@@ -126,8 +105,33 @@ Future<PlaybackResolved> resolvePlaybackWithHdFallback({
     }
   }
 
-  if (best != null) {
-    return best!;
+  if (identical(best, start) || !playbackFallbackImproves(start, best)) {
+    return null;
   }
-  throw const YtdlpException(AppStrings.errorNoPlaybackStreams);
+  return best;
+}
+
+Future<PlaybackResolved?> _fetchClient({
+  required YtdlpService ytdlp,
+  required String url,
+  required PlaybackQuality quality,
+  required String client,
+  required bool forceRefresh,
+  required Duration timeout,
+  String? poToken,
+}) async {
+  try {
+    return await ytdlp
+        .resolvePlayback(
+          url,
+          quality: quality,
+          playerClient: client,
+          forceRefresh: forceRefresh,
+          poToken: poToken,
+        )
+        .timeout(timeout);
+  } on Object catch (error, stack) {
+    AppLogger.w('resolve via $client failed: $error\n$stack');
+    return null;
+  }
 }

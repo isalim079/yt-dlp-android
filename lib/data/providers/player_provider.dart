@@ -168,7 +168,7 @@ class PlayerController extends Notifier<PlayerUiState> {
         PlaybackPoTokenService.ensureMinter(rethrowOnError: false),
       );
     }
-    await _openCurrent(
+    await _startAt360(
       forceRefresh: false,
       preservePosition: false,
       playerReady: _ensurePlayer(),
@@ -193,13 +193,45 @@ class PlayerController extends Notifier<PlayerUiState> {
     }
   }
 
-  /// Changes quality by re-parsing cached JSON; does not re-run yt-dlp.
+  /// Changes quality from cached JSON (HD warmer or preferred). One reopen.
   Future<void> setQuality(PlaybackQuality quality) async {
-    if (state.video == null) {
+    final BrowseVideo? video = state.video;
+    if (video == null) {
       return;
     }
     state = state.copyWith(quality: quality, loading: false, clearError: true);
-    await _openCurrent(forceRefresh: false, preservePosition: true);
+    final Duration? keepAt = _player?.state.position;
+    try {
+      await _ensurePlayer();
+      final AppSettings settings =
+          ref.read(settingsProvider).valueOrNull ?? AppSettings.defaults;
+      final PlaybackResolved resolved = await _resolveQualityFromCache(
+        url: video.url,
+        quality: quality,
+        preferredClient: settings.playerClient.ytDlpValue,
+      );
+      if (state.video?.id != video.id) {
+        return;
+      }
+      state = state.copyWith(resolved: resolved, quality: quality);
+      await _openResolved(
+        resolved,
+        allowProgressiveFallback: true,
+        preferProgressive: quality == PlaybackQuality.p360,
+      );
+      if (keepAt != null && keepAt.inMilliseconds > 500) {
+        try {
+          await _player?.seek(keepAt).timeout(const Duration(seconds: 3));
+        } on TimeoutException {
+          AppLogger.w('quality seek timed out');
+        }
+      }
+    } on Object catch (error, stack) {
+      AppLogger.e('setQuality failed', error, stack);
+      if (state.video?.id == video.id) {
+        state = state.copyWith(error: _friendlyError(error));
+      }
+    }
   }
 
   /// Expands the watch page.
@@ -349,7 +381,7 @@ class PlayerController extends Notifier<PlayerUiState> {
     }
   }
 
-  Future<void> _openCurrent({
+  Future<void> _startAt360({
     required bool forceRefresh,
     required bool preservePosition,
     Future<void>? playerReady,
@@ -362,92 +394,68 @@ class PlayerController extends Notifier<PlayerUiState> {
     _opening = true;
     final Future<void> ready = playerReady ?? _ensurePlayer();
     final Duration? keepAt = preservePosition ? _player?.state.position : null;
-    PlaybackResolved? opened;
     try {
       final AppSettings settings =
           ref.read(settingsProvider).valueOrNull ?? AppSettings.defaults;
       final YtdlpService ytdlp = ref.read(ytdlpServiceProvider);
-      Future<void> applyChain = Future<void>.value();
-
-      Future<void> applyPlayable(PlaybackResolved resolved) async {
-        if (gen != _generation) {
-          return;
-        }
-        if (opened != null) {
-          state = state.copyWith(resolved: resolved);
-          return;
-        }
-        _opening = true;
-        await ready;
-        await _waitForSurface();
-        if (gen != _generation) {
-          return;
-        }
-        state = state.copyWith(
-          resolved: resolved,
-          loading: false,
-          clearError: true,
-        );
-        await _openResolved(resolved, allowProgressiveFallback: true);
-        if (gen != _generation) {
-          return;
-        }
-        opened = resolved;
-        int resumeMs = 0;
-        if (keepAt != null && keepAt.inMilliseconds > 500) {
-          resumeMs = keepAt.inMilliseconds;
-        } else if (!preservePosition) {
-          resumeMs = await ref.read(libraryStoreProvider).positionFor(video.id);
-        }
-        final int minSeekMs = preservePosition ? 500 : 3000;
-        if (resumeMs > minSeekMs) {
-          try {
-            await _player?.seek(Duration(milliseconds: resumeMs)).timeout(
-              const Duration(seconds: 3),
-            );
-          } on TimeoutException {
-            AppLogger.w('resume seek timed out');
-          }
-        }
-        unawaited(
-          ref.read(libraryActionsProvider).recordWatch(video, resumeMs),
-        );
-        if (Platform.isAndroid && settings.backgroundPlayback) {
-          unawaited(YtdlpPlatformChannel.setPlaybackService(active: true));
-        }
-        if (gen == _generation) {
-          _opening = false;
-        }
-      }
-
-      final PlaybackResolved resolved = await resolvePlaybackWithHdFallback(
-        ytdlp: ytdlp,
-        url: video.url,
-        quality: state.quality,
-        preferredClient: settings.playerClient.ytDlpValue,
-        forceRefresh: forceRefresh,
-        mintPoTokens: PlaybackPoTokenService.mint,
-        onPlayable: (PlaybackResolved readyStream) {
-          applyChain = applyChain
-              .then((_) => applyPlayable(readyStream))
-              .catchError((Object error, StackTrace stack) {
-                AppLogger.w('apply playable failed: $error\n$stack');
-              });
-        },
-      );
-      await applyChain;
+      await ready;
+      await _waitForSurface();
       if (gen != _generation) {
         return;
       }
-      if (opened == null) {
-        await applyPlayable(resolved);
-      } else {
-        state = state.copyWith(
-          resolved: resolved,
-          loading: false,
-          clearError: true,
-        );
+      final PlaybackResolved start = await resolvePlaybackStart(
+        ytdlp: ytdlp,
+        url: video.url,
+        preferredClient: settings.playerClient.ytDlpValue,
+        forceRefresh: forceRefresh,
+      );
+      if (gen != _generation) {
+        return;
       }
+      state = state.copyWith(
+        resolved: start,
+        loading: false,
+        clearError: true,
+      );
+      await _openResolved(
+        start,
+        allowProgressiveFallback: true,
+        preferProgressive: true,
+      );
+      if (gen != _generation) {
+        return;
+      }
+      int resumeMs = 0;
+      if (keepAt != null && keepAt.inMilliseconds > 500) {
+        resumeMs = keepAt.inMilliseconds;
+      } else if (!preservePosition) {
+        resumeMs = await ref.read(libraryStoreProvider).positionFor(video.id);
+      }
+      final int minSeekMs = preservePosition ? 500 : 3000;
+      if (resumeMs > minSeekMs) {
+        try {
+          await _player?.seek(Duration(milliseconds: resumeMs)).timeout(
+            const Duration(seconds: 3),
+          );
+        } on TimeoutException {
+          AppLogger.w('resume seek timed out');
+        }
+      }
+      unawaited(
+        ref.read(libraryActionsProvider).recordWatch(video, resumeMs),
+      );
+      if (Platform.isAndroid && settings.backgroundPlayback) {
+        unawaited(YtdlpPlatformChannel.setPlaybackService(active: true));
+      }
+      unawaited(
+        _warmHdInBackground(
+          gen: gen,
+          url: video.url,
+          preferredClient: settings.playerClient.ytDlpValue,
+          start: start,
+          ytdlp: ytdlp,
+        ),
+      );
     } on Object catch (error, stack) {
       AppLogger.e('open playback failed', error, stack);
       if (gen != _generation) {
@@ -462,6 +470,75 @@ class PlayerController extends Notifier<PlayerUiState> {
         _opening = false;
       }
     }
+  }
+
+  Future<void> _warmHdInBackground({
+    required int gen,
+    required String url,
+    required String preferredClient,
+    required PlaybackResolved start,
+    required YtdlpService ytdlp,
+  }) async {
+    if (!playbackNeedsExtraClient(start)) {
+      return;
+    }
+    try {
+      final PlaybackResolved? hd = await warmPlaybackHdLadder(
+        ytdlp: ytdlp,
+        url: url,
+        preferredClient: preferredClient,
+        start: start,
+        mintPoTokens: PlaybackPoTokenService.mint,
+      );
+      if (gen != _generation || hd == null) {
+        return;
+      }
+      AppLogger.i(
+        'HD ladder ready max=${playbackMaxAvailableHeight(hd)}',
+      );
+      state = state.copyWith(resolved: hd);
+    } on Object catch (error, stack) {
+      AppLogger.w('HD warm failed: $error\n$stack');
+    }
+  }
+
+  Future<PlaybackResolved> _resolveQualityFromCache({
+    required String url,
+    required PlaybackQuality quality,
+    required String preferredClient,
+  }) async {
+    final YtdlpService ytdlp = ref.read(ytdlpServiceProvider);
+    final List<String> clients = <String>[
+      kPlaybackHdFallbackClient,
+      preferredClient,
+      kPlaybackMwebClient,
+    ];
+    PlaybackResolved? best;
+    for (final String client in clients.toSet()) {
+      try {
+        final PlaybackResolved resolved = await ytdlp.resolvePlayback(
+          url,
+          quality: quality,
+          playerClient: client,
+          forceRefresh: false,
+        );
+        if (best == null || playbackFallbackImproves(best, resolved)) {
+          best = resolved;
+        }
+        if (resolved.offersQuality(quality) &&
+            (quality == PlaybackQuality.p360 ||
+                quality == PlaybackQuality.auto ||
+                !playbackNeedsExtraClient(resolved))) {
+          return resolved;
+        }
+      } on Object catch (error) {
+        AppLogger.w('quality resolve via $client failed: $error');
+      }
+    }
+    if (best != null) {
+      return best;
+    }
+    throw const YtdlpException(AppStrings.errorNoPlaybackStreams);
   }
 
   Future<void> _waitForSurface() async {
@@ -489,6 +566,7 @@ class PlayerController extends Notifier<PlayerUiState> {
   Future<void> _openResolved(
     PlaybackResolved resolved, {
     required bool allowProgressiveFallback,
+    bool preferProgressive = false,
   }) async {
     final Player? player = _player;
     if (player == null) {
@@ -497,9 +575,10 @@ class PlayerController extends Notifier<PlayerUiState> {
     final Map<String, String> headers = resolved.headers;
     try {
       final bool emulator = await PlatformUtils.isAndroidEmulator;
-      if (emulator &&
+      final bool useProgressive = (preferProgressive || emulator) &&
           resolved.progressiveUrl != null &&
-          resolved.progressiveUrl!.isNotEmpty) {
+          resolved.progressiveUrl!.isNotEmpty;
+      if (useProgressive) {
         await _openMedia(
           player,
           Media(resolved.progressiveUrl!, httpHeaders: headers),
@@ -602,7 +681,7 @@ class PlayerController extends Notifier<PlayerUiState> {
     }
     AppLogger.w('player error, re-resolving: $message');
     state = state.copyWith(loading: true, error: AppStrings.errorPlaybackFailed);
-    await _openCurrent(forceRefresh: true, preservePosition: true);
+    await _startAt360(forceRefresh: true, preservePosition: true);
   }
 
   void _maybeWriteHistory(Duration position) {
