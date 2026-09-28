@@ -163,11 +163,16 @@ class PlayerController extends Notifier<PlayerUiState> {
       queue: queue ?? <BrowseVideo>[video],
       queueIndex: index,
     );
-    await _ensurePlayer();
     if (Platform.isAndroid) {
-      unawaited(PlaybackPoTokenService.ensureMinter());
+      unawaited(
+        PlaybackPoTokenService.ensureMinter(rethrowOnError: false),
+      );
     }
-    await _openCurrent(forceRefresh: false, preservePosition: false);
+    await _openCurrent(
+      forceRefresh: false,
+      preservePosition: false,
+      playerReady: _ensurePlayer(),
+    );
   }
 
   /// Seeks relative to the current position (double-tap skip).
@@ -347,6 +352,7 @@ class PlayerController extends Notifier<PlayerUiState> {
   Future<void> _openCurrent({
     required bool forceRefresh,
     required bool preservePosition,
+    Future<void>? playerReady,
   }) async {
     final BrowseVideo? video = state.video;
     if (video == null) {
@@ -354,53 +360,102 @@ class PlayerController extends Notifier<PlayerUiState> {
     }
     final int gen = ++_generation;
     _opening = true;
+    final Future<void> ready = playerReady ?? _ensurePlayer();
     final Duration? keepAt = preservePosition ? _player?.state.position : null;
+    PlaybackResolved? opened;
     try {
       final AppSettings settings =
           ref.read(settingsProvider).valueOrNull ?? AppSettings.defaults;
       final YtdlpService ytdlp = ref.read(ytdlpServiceProvider);
-      PlaybackResolved resolved = await resolvePlaybackWithHdFallback(
+      Future<void> applyChain = Future<void>.value();
+
+      Future<void> applyPlayable(PlaybackResolved resolved) async {
+        if (gen != _generation) {
+          return;
+        }
+        if (opened != null &&
+            !playbackFallbackImproves(opened!, resolved) &&
+            opened!.primaryUrl == resolved.primaryUrl) {
+          state = state.copyWith(resolved: resolved);
+          return;
+        }
+        _opening = true;
+        await ready;
+        if (gen != _generation) {
+          return;
+        }
+        final bool firstOpen = opened == null;
+        final Duration? swapAt =
+            firstOpen ? keepAt : _player?.state.position;
+        state = state.copyWith(
+          resolved: resolved,
+          loading: false,
+          clearError: true,
+        );
+        await _openResolved(resolved, allowProgressiveFallback: true);
+        if (gen != _generation) {
+          return;
+        }
+        opened = resolved;
+        int resumeMs = 0;
+        if (swapAt != null && swapAt.inMilliseconds > 500) {
+          resumeMs = swapAt.inMilliseconds;
+        } else if (firstOpen && !preservePosition) {
+          resumeMs = await ref.read(libraryStoreProvider).positionFor(video.id);
+        }
+        final int minSeekMs = firstOpen && !preservePosition ? 3000 : 500;
+        if (resumeMs > minSeekMs) {
+          try {
+            await _player?.seek(Duration(milliseconds: resumeMs)).timeout(
+              const Duration(seconds: 3),
+            );
+          } on TimeoutException {
+            AppLogger.w('resume seek timed out');
+          }
+        }
+        unawaited(
+          ref.read(libraryActionsProvider).recordWatch(video, resumeMs),
+        );
+        if (Platform.isAndroid && settings.backgroundPlayback) {
+          unawaited(YtdlpPlatformChannel.setPlaybackService(active: true));
+        }
+        if (gen == _generation) {
+          _opening = false;
+        }
+      }
+
+      final PlaybackResolved resolved = await resolvePlaybackWithHdFallback(
         ytdlp: ytdlp,
         url: video.url,
         quality: state.quality,
         preferredClient: settings.playerClient.ytDlpValue,
         forceRefresh: forceRefresh,
         mintPoTokens: PlaybackPoTokenService.mint,
+        onPlayable: (PlaybackResolved readyStream) {
+          applyChain = applyChain.then((_) => applyPlayable(readyStream)).catchError((
+            Object error,
+            StackTrace stack,
+          ) {
+            AppLogger.w('apply playable failed: $error\n$stack');
+          });
+        },
       );
+      await applyChain;
       if (gen != _generation) {
         return;
       }
-      state = state.copyWith(resolved: resolved, loading: false, clearError: true);
-      await _waitForVideoTexture();
-      await _openResolved(resolved, allowProgressiveFallback: true);
-      if (gen != _generation) {
-        return;
-      }
-      final int resumeMs;
-      if (keepAt != null && keepAt.inMilliseconds > 500) {
-        resumeMs = keepAt.inMilliseconds;
-      } else if (!preservePosition) {
-        resumeMs = await ref.read(libraryStoreProvider).positionFor(video.id);
+      if (opened == null) {
+        await applyPlayable(resolved);
+      } else if (playbackFallbackImproves(opened!, resolved) ||
+          opened!.primaryUrl != resolved.primaryUrl) {
+        await applyPlayable(resolved);
       } else {
-        resumeMs = 0;
+        state = state.copyWith(
+          resolved: resolved,
+          loading: false,
+          clearError: true,
+        );
       }
-      final int minSeekMs = preservePosition ? 500 : 3000;
-      if (resumeMs > minSeekMs) {
-        try {
-          await _player?.seek(Duration(milliseconds: resumeMs)).timeout(
-            const Duration(seconds: 3),
-          );
-        } on TimeoutException {
-          AppLogger.w('resume seek timed out');
-        }
-      }
-      unawaited(
-        ref.read(libraryActionsProvider).recordWatch(video, resumeMs),
-      );
-      if (Platform.isAndroid && settings.backgroundPlayback) {
-        unawaited(YtdlpPlatformChannel.setPlaybackService(active: true));
-      }
-      state = state.copyWith(loading: false, clearError: true);
     } on Object catch (error, stack) {
       AppLogger.e('open playback failed', error, stack);
       if (gen != _generation) {
@@ -499,31 +554,6 @@ class PlayerController extends Notifier<PlayerUiState> {
           AppLogger.w('player.play after timeout failed: $error');
         }
       }
-    }
-  }
-
-  Future<void> _waitForVideoTexture() async {
-    final VideoController? controller = _videoController;
-    if (controller == null) {
-      return;
-    }
-    if (controller.id.value != null) {
-      return;
-    }
-    final Completer<void> ready = Completer<void>();
-    void listener() {
-      if (controller.id.value != null && !ready.isCompleted) {
-        ready.complete();
-      }
-    }
-
-    controller.id.addListener(listener);
-    try {
-      await ready.future.timeout(const Duration(seconds: 4));
-    } on TimeoutException {
-      AppLogger.w('video texture id not ready; opening anyway');
-    } finally {
-      controller.id.removeListener(listener);
     }
   }
 

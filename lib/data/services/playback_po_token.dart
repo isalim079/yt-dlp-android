@@ -24,7 +24,7 @@ abstract final class PlaybackPoTokenService {
   static Future<PlaybackPoToken?> Function(String videoId)? debugMint;
 
   /// Loads the BotGuard VM and integrity token (hours of TTL).
-  static Future<void> ensureMinter() async {
+  static Future<void> ensureMinter({bool rethrowOnError = true}) async {
     final Future<void> Function()? hook = debugEnsure;
     if (hook != null) {
       await hook();
@@ -37,7 +37,9 @@ abstract final class PlaybackPoTokenService {
       await _channel.invokeMethod<void>('ensurePoMinter');
     } on Object catch (error, stack) {
       AppLogger.w('BotGuard ensureMinter failed: $error\n$stack');
-      rethrow;
+      if (rethrowOnError) {
+        rethrow;
+      }
     }
   }
 

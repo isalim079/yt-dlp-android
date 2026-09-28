@@ -24,7 +24,10 @@ void main() {
         forceRefresh: false,
       );
 
-      expect(ytdlp.clients, <String>['android,web', kPlaybackHdFallbackClient]);
+      expect(
+        ytdlp.clients.toSet(),
+        <String>{'android,web', kPlaybackHdFallbackClient},
+      );
       expect(resolved.offersQuality(PlaybackQuality.p2160), isTrue);
       expect(resolved.offersQuality(PlaybackQuality.p1440), isTrue);
       expect(resolved.offersQuality(PlaybackQuality.p1080), isTrue);
@@ -53,7 +56,7 @@ void main() {
       );
 
       expect(mints, 0);
-      expect(ytdlp.clients, <String>['android,web']);
+      expect(ytdlp.clients, contains('android,web'));
       expect(resolved.height, 1080);
       expect(playbackNeedsExtraClient(resolved), isFalse);
     });
@@ -71,7 +74,10 @@ void main() {
         forceRefresh: false,
       );
 
-      expect(ytdlp.clients, <String>['android,web', kPlaybackHdFallbackClient]);
+      expect(
+        ytdlp.clients.toSet(),
+        <String>{'android,web', kPlaybackHdFallbackClient},
+      );
       expect(resolved.height, 360);
       expect(resolved.offersQuality(PlaybackQuality.p1080), isFalse);
     });
@@ -120,8 +126,12 @@ void main() {
 
       expect(mints, 1);
       expect(
-        ytdlp.clients,
-        <String>['android,web', kPlaybackHdFallbackClient, kPlaybackMwebClient],
+        ytdlp.clients.toSet(),
+        <String>{
+          'android,web',
+          kPlaybackHdFallbackClient,
+          kPlaybackMwebClient,
+        },
       );
       expect(ytdlp.poTokens.single, contains('mweb.player+PLAYERTOKEN'));
       expect(ytdlp.poTokens.single, contains('mweb.gvs+GVSTOKEN'));
@@ -144,16 +154,52 @@ void main() {
         mintPoTokens: (String videoId) async => null,
       );
 
-      expect(ytdlp.clients, <String>['android,web', kPlaybackHdFallbackClient]);
+      expect(
+        ytdlp.clients.toSet(),
+        <String>{'android,web', kPlaybackHdFallbackClient},
+      );
       expect(resolved.height, 360);
+    });
+
+    test('onPlayable starts 360 before slower HD client finishes', () async {
+      final _FakeYtdlp ytdlp = _FakeYtdlp(
+        <String, String>{
+          'android,web': _payload360(),
+          kPlaybackHdFallbackClient: _payloadFullLadder(),
+        },
+        delays: <String, Duration>{
+          'android,web': const Duration(milliseconds: 20),
+          kPlaybackHdFallbackClient: const Duration(milliseconds: 80),
+        },
+      );
+      final List<int> heights = <int>[];
+
+      final PlaybackResolved resolved = await resolvePlaybackWithHdFallback(
+        ytdlp: ytdlp,
+        url: 'https://www.youtube.com/watch?v=sRWcJrMTtMI',
+        quality: PlaybackQuality.auto,
+        preferredClient: 'android,web',
+        forceRefresh: false,
+        onPlayable: (PlaybackResolved ready) {
+          heights.add(playbackMaxAvailableHeight(ready));
+        },
+      );
+
+      expect(heights.first, 360);
+      expect(heights.last, 2160);
+      expect(playbackMaxAvailableHeight(resolved), 2160);
     });
   });
 }
 
 class _FakeYtdlp extends YtdlpService {
-  _FakeYtdlp(this._jsonByClient) : super(binaryPath: '/mock/yt-dlp');
+  _FakeYtdlp(
+    this._jsonByClient, {
+    this.delays = const <String, Duration>{},
+  }) : super(binaryPath: '/mock/yt-dlp');
 
   final Map<String, String> _jsonByClient;
+  final Map<String, Duration> delays;
   final List<String> clients = <String>[];
   final List<String> poTokens = <String>[];
 
@@ -165,6 +211,10 @@ class _FakeYtdlp extends YtdlpService {
     bool forceRefresh = false,
     String? poToken,
   }) async {
+    final Duration delay = delays[playerClient] ?? Duration.zero;
+    if (delay > Duration.zero) {
+      await Future<void>.delayed(delay);
+    }
     clients.add(playerClient);
     if (poToken != null) {
       poTokens.add(poToken);
