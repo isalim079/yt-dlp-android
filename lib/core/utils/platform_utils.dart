@@ -58,6 +58,19 @@ class PlatformUtils {
   static bool get isAndroid =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
+  /// True on Android emulators (hardware video decode is often black).
+  static Future<bool> get isAndroidEmulator async {
+    if (!isAndroid) {
+      return false;
+    }
+    try {
+      final AndroidDeviceInfo info = await DeviceInfoPlugin().androidInfo;
+      return !info.isPhysicalDevice;
+    } on Object {
+      return false;
+    }
+  }
+
   /// Whether the embedder is a desktop OS (Windows, macOS, or Linux).
   static bool get isDesktop =>
       !kIsWeb &&

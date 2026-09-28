@@ -8,12 +8,15 @@ import 'dart:io';
 import '../../core/constants/app_strings.dart';
 import '../../core/exceptions/ytdlp_exception.dart';
 import '../../core/utils/logger.dart';
+import '../../core/utils/youtube_urls.dart';
 import '../../core/utils/ytdlp_launch_command.dart';
 import '../models/app_settings.dart';
+import '../models/playback_resolved.dart';
 import '../models/playlist_info.dart';
 import '../models/video_format.dart';
 import '../models/video_info.dart';
 import 'format_parser.dart';
+import 'playback_resolver.dart';
 import 'ytdlp_platform_channel.dart';
 
 /// Single entry point for invoking the bundled yt-dlp binary.
@@ -43,7 +46,7 @@ class YtdlpService {
       '--progress',
       '--no-playlist',
       '--extractor-args',
-      'youtube:player_client=android,web',
+      extractorArgsFor(settings.playerClient.ytDlpValue),
       '--parse-metadata',
       ':(?P<comment>Downloaded with yt-dlp App)',
     ];
@@ -78,26 +81,32 @@ class YtdlpService {
     return args;
   }
 
+  static String extractorArgsFor(String playerClient) {
+    final String client =
+        playerClient.trim().isEmpty ? 'android,web' : playerClient.trim();
+    return 'youtube:player_client=$client';
+  }
+
   static String? _metadataJsonUrl;
   static String? _metadataJsonBody;
+  static String? _metadataJsonClient;
+  static final Map<String, PlaybackResolved> _playbackCache =
+      <String, PlaybackResolved>{};
 
   /// Fetches all available formats for a given URL.
   ///
   /// Runs: `yt-dlp -J --no-playlist --no-warnings <url>`
   /// Returns a list of [VideoFormat] sorted by quality (best first).
   /// Throws [YtdlpException] on failure.
-  Future<List<VideoFormat>> fetchFormats(String url) async {
+  Future<List<VideoFormat>> fetchFormats(
+    String url, {
+    String playerClient = 'android,web',
+  }) async {
     try {
-      if (Platform.isAndroid) {
-        final String json = await YtdlpPlatformChannel.fetchFormats(url);
-        final List<VideoFormat> list = FormatParser.parseFormats(json);
-        if (list.isEmpty) {
-          throw const YtdlpException(AppStrings.errorNoFormats);
-        }
-        AppLogger.i('Resolved ${list.length} formats for metadata request');
-        return list;
-      }
-      final String json = await _ensureSingleVideoJson(url);
+      final String json = await _ensureSingleVideoJson(
+        url,
+        playerClient: playerClient,
+      );
       final List<VideoFormat> list = FormatParser.parseFormats(json);
       if (list.isEmpty) {
         throw const YtdlpException(AppStrings.errorNoFormats);
@@ -116,18 +125,92 @@ class YtdlpService {
   ///
   /// Reuses the same JSON payload as [fetchFormats] for the same [url]
   /// within this service instance (no second `-J` process).
-  Future<VideoInfo> fetchVideoInfo(String url) async {
+  Future<VideoInfo> fetchVideoInfo(
+    String url, {
+    String playerClient = 'android,web',
+  }) async {
     try {
-      if (Platform.isAndroid) {
-        final String json = await YtdlpPlatformChannel.fetchFormats(url);
-        return FormatParser.parseVideoInfo(json);
-      }
-      final String json = await _ensureSingleVideoJson(url);
+      final String json = await _ensureSingleVideoJson(
+        url,
+        playerClient: playerClient,
+      );
       return FormatParser.parseVideoInfo(json);
     } on YtdlpException {
       rethrow;
     } on Object catch (error, stackTrace) {
       AppLogger.e('fetchVideoInfo failed', error, stackTrace);
+      throw _mapToYtdlpException(error);
+    }
+  }
+
+  /// Resolves playable CDN / HLS URLs for in-app playback.
+  Future<PlaybackResolved> resolvePlayback(
+    String url, {
+    PlaybackQuality quality = PlaybackQuality.auto,
+    String playerClient = 'android,web',
+    bool forceRefresh = false,
+  }) async {
+    try {
+      _validateUrl(url);
+      final String cacheKey = '$url|${quality.name}|$playerClient';
+      if (!forceRefresh) {
+        final PlaybackResolved? cached = _playbackCache[cacheKey];
+        if (cached != null && !cached.isExpired) {
+          return cached;
+        }
+      }
+      final String json = await _ensureSingleVideoJson(
+        url,
+        playerClient: playerClient,
+        forceRefresh: forceRefresh,
+      );
+      final PlaybackResolved resolved = PlaybackResolver.fromJson(
+        json,
+        quality: quality,
+      );
+      if (!resolved.isPlayable) {
+        throw const YtdlpException(AppStrings.errorNoPlaybackStreams);
+      }
+      _playbackCache[cacheKey] = resolved;
+      return resolved;
+    } on YtdlpException {
+      rethrow;
+    } on Object catch (error, stackTrace) {
+      AppLogger.e('resolvePlayback failed', error, stackTrace);
+      throw _mapToYtdlpException(error);
+    }
+  }
+
+  /// Flat listing for search, popular, channel uploads, or playlists.
+  Future<PlaylistInfo> fetchFlatListing(String source) async {
+    try {
+      if (!YoutubeUrls.isSearchSource(source)) {
+        _validateUrl(source);
+      }
+      if (Platform.isAndroid) {
+        final String json = await YtdlpPlatformChannel.fetchPlaylistInfo(source);
+        return FormatParser.parsePlaylistInfo(json);
+      }
+      final _YtdlpResult result = await _runProcess(<String>[
+        '--flat-playlist',
+        '--dump-single-json',
+        '--no-warnings',
+        '--no-update',
+        '--playlist-end',
+        '40',
+        source,
+      ], timeout: const Duration(seconds: 60));
+      if (!result.isSuccess) {
+        final String msg = result.stderr.trim().isNotEmpty
+            ? result.stderr.trim()
+            : AppStrings.errorProcessFailed;
+        throw YtdlpException(msg);
+      }
+      return FormatParser.parsePlaylistInfo(result.stdout);
+    } on YtdlpException {
+      rethrow;
+    } on Object catch (error, stackTrace) {
+      AppLogger.e('fetchFlatListing failed', error, stackTrace);
       throw _mapToYtdlpException(error);
     }
   }
@@ -140,7 +223,7 @@ class YtdlpService {
     try {
       _validateUrl(url);
       if (Platform.isAndroid) {
-        return YtdlpPlatformChannel.isPlaylist(url);
+        return await YtdlpPlatformChannel.isPlaylist(url);
       }
       final _YtdlpResult result = await _runProcess(<String>[
         '--flat-playlist',
@@ -241,7 +324,10 @@ class YtdlpService {
   /// Central method that runs yt-dlp with [arguments] (excluding binary path).
   ///
   /// Applies UTF-8 IO env, captures stdout/stderr, and enforces a timeout.
-  Future<_YtdlpResult> _runProcess(List<String> arguments) async {
+  Future<_YtdlpResult> _runProcess(
+    List<String> arguments, {
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
     if (Platform.isAndroid) {
       throw const YtdlpException(
         'Android must use YtdlpPlatformChannel, not Process.run',
@@ -257,7 +343,7 @@ class YtdlpService {
         cmd.arguments,
         environment: <String, String>{'PYTHONIOENCODING': 'utf-8'},
         runInShell: false,
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(timeout);
       return _YtdlpResult(
         stdout: _stdoutToString(result.stdout),
         stderr: _stdoutToString(result.stderr),
@@ -279,40 +365,48 @@ class YtdlpService {
   }
 
   /// Ensures a single `-J` JSON payload is available for [url] on this service.
-  Future<String> _ensureSingleVideoJson(String url) async {
-    if (_metadataJsonUrl == url && _metadataJsonBody != null) {
+  Future<String> _ensureSingleVideoJson(
+    String url, {
+    String playerClient = 'android,web',
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh &&
+        _metadataJsonUrl == url &&
+        _metadataJsonClient == playerClient &&
+        _metadataJsonBody != null) {
       AppLogger.d('Reusing in-memory yt-dlp JSON for the current URL');
       return _metadataJsonBody!;
     }
-    if (Platform.isAndroid) {
-      _validateUrl(url);
-      final String body = await YtdlpPlatformChannel.fetchFormats(url);
-      if (body.trim().isEmpty) {
-        throw const YtdlpException(AppStrings.errorProcessFailed);
-      }
-      _metadataJsonUrl = url;
-      _metadataJsonBody = body;
-      return body;
-    }
     _validateUrl(url);
-    final _YtdlpResult result = await _runProcess(<String>[
-      '-J',
-      '--no-playlist',
-      '--no-warnings',
-      url,
-    ]);
-    if (!result.isSuccess) {
-      final String msg = result.stderr.trim().isNotEmpty
-          ? result.stderr.trim()
-          : AppStrings.errorProcessFailed;
-      throw YtdlpException(msg);
+    late final String body;
+    if (Platform.isAndroid) {
+      body = await YtdlpPlatformChannel.fetchFormats(
+        url,
+        playerClient: playerClient,
+      );
+    } else {
+      final _YtdlpResult result = await _runProcess(<String>[
+        '-J',
+        '--no-playlist',
+        '--no-warnings',
+        '--extractor-args',
+        extractorArgsFor(playerClient),
+        url,
+      ], timeout: const Duration(seconds: 90));
+      if (!result.isSuccess) {
+        final String msg = result.stderr.trim().isNotEmpty
+            ? result.stderr.trim()
+            : AppStrings.errorProcessFailed;
+        throw YtdlpException(msg);
+      }
+      body = result.stdout;
     }
-    final String body = result.stdout;
     if (body.trim().isEmpty) {
       throw const YtdlpException(AppStrings.errorProcessFailed);
     }
     _metadataJsonUrl = url;
     _metadataJsonBody = body;
+    _metadataJsonClient = playerClient;
     return body;
   }
 
@@ -331,6 +425,16 @@ class YtdlpService {
 
     if (lower.contains('http error 403') || lower.contains('forbidden')) {
       return YtdlpException(AppStrings.errorForbidden, originalError: error);
+    }
+
+    if (lower.contains('sabr') ||
+        lower.contains('requested format is not available') ||
+        lower.contains('nsig') ||
+        lower.contains('signature')) {
+      return YtdlpException(
+        AppStrings.errorExtractionBroken,
+        originalError: error,
+      );
     }
 
     return YtdlpException(AppStrings.errorUnknown, originalError: error);

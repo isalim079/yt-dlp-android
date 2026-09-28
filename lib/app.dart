@@ -1,6 +1,8 @@
 /// Root Material shell with bottom navigation and IndexedStack tabs.
 library;
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -13,9 +15,14 @@ import 'core/theme/app_ui_colors.dart';
 import 'data/models/app_settings.dart';
 import 'data/providers/app_navigation_providers.dart';
 import 'data/providers/download_providers.dart';
+import 'data/providers/player_provider.dart';
 import 'data/providers/settings_providers.dart';
-import 'presentation/screens/download/download_screen.dart';
-import 'presentation/screens/home/home_screen.dart';
+import 'data/services/ytdlp_platform_channel.dart';
+import 'presentation/player/mini_player.dart';
+import 'presentation/player/watch_page.dart';
+import 'presentation/screens/home/home_feed_screen.dart';
+import 'presentation/screens/library/library_screen.dart';
+import 'presentation/screens/search/search_screen.dart';
 import 'presentation/screens/settings/settings_screen.dart';
 
 /// Root [MaterialApp] supporting light and dark modes dynamically.
@@ -99,23 +106,70 @@ class _LazyIndexedStackState extends State<_LazyIndexedStack> {
   }
 }
 
-class _MainShell extends ConsumerWidget {
+class _MainShell extends ConsumerStatefulWidget {
   const _MainShell();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_MainShell> createState() => _MainShellState();
+}
+
+class _MainShellState extends ConsumerState<_MainShell>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final AppSettings? settings = ref.read(settingsProvider).valueOrNull;
+    final bool background = settings?.backgroundPlayback ?? true;
+    if (!background &&
+        (state == AppLifecycleState.paused ||
+            state == AppLifecycleState.inactive)) {
+      ref.read(playerControllerProvider.notifier).rawPlayer?.pause();
+    }
+    if (state == AppLifecycleState.detached && Platform.isAndroid) {
+      YtdlpPlatformChannel.setPlaybackService(active: false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final int tab = ref.watch(tabIndexProvider);
     final int activeCount = ref.watch(activeDownloadCountProvider);
+    final PlayerUiState playerState = ref.watch(playerControllerProvider);
     final AppUiColors c = AppColors.of(context);
     final double screenWidth = MediaQuery.sizeOf(context).width;
     final bool isWideScreen = screenWidth >= 600;
+    final bool expanded = playerState.expanded;
 
     final Widget tabContent = _LazyIndexedStack(
       index: tab,
       children: const <Widget>[
-        HomeScreen(),
-        DownloadScreen(),
+        HomeFeedScreen(),
+        SearchScreen(),
+        LibraryScreen(),
         SettingsScreen(),
+      ],
+    );
+
+    final Widget stacked = Stack(
+      children: <Widget>[
+        Column(
+          children: <Widget>[
+            Expanded(child: tabContent),
+            if (!expanded) const MiniPlayerBar(),
+          ],
+        ),
+        if (expanded) const WatchPage(),
       ],
     );
 
@@ -124,101 +178,127 @@ class _MainShell extends ConsumerWidget {
         backgroundColor: c.background,
         body: Row(
           children: <Widget>[
-            NavigationRail(
-              backgroundColor: c.surface,
-              selectedIndex: tab,
-              onDestinationSelected: (int idx) {
-                ref.read(tabIndexProvider.notifier).state = idx;
-              },
-              labelType: NavigationRailLabelType.all,
-              leading: Padding(
-                padding: const EdgeInsets.symmetric(vertical: AppDimensions.spaceMd),
-                child: Icon(
-                  Icons.play_circle_fill_rounded,
-                  color: c.primary,
-                  size: AppDimensions.iconLg,
+            if (!expanded)
+              NavigationRail(
+                backgroundColor: c.surface,
+                selectedIndex: tab,
+                onDestinationSelected: (int idx) {
+                  ref.read(tabIndexProvider.notifier).state = idx;
+                },
+                labelType: NavigationRailLabelType.all,
+                leading: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: AppDimensions.spaceMd,
+                  ),
+                  child: Icon(
+                    Icons.play_circle_fill_rounded,
+                    color: c.primary,
+                    size: AppDimensions.iconLg,
+                  ),
                 ),
+                destinations: <NavigationRailDestination>[
+                  NavigationRailDestination(
+                    icon: const Icon(Icons.home_outlined),
+                    selectedIcon: Icon(Icons.home_rounded, color: c.primary),
+                    label: const Text(AppStrings.navHome),
+                  ),
+                  NavigationRailDestination(
+                    icon: const Icon(Icons.search_outlined),
+                    selectedIcon: Icon(Icons.search_rounded, color: c.primary),
+                    label: const Text(AppStrings.navSearch),
+                  ),
+                  NavigationRailDestination(
+                    icon: Badge(
+                      isLabelVisible: activeCount > 0,
+                      label: Text('$activeCount'),
+                      backgroundColor: c.primary,
+                      child: const Icon(Icons.video_library_outlined),
+                    ),
+                    selectedIcon: Badge(
+                      isLabelVisible: activeCount > 0,
+                      label: Text('$activeCount'),
+                      backgroundColor: c.primary,
+                      child: Icon(Icons.video_library_rounded, color: c.primary),
+                    ),
+                    label: const Text(AppStrings.navLibrary),
+                  ),
+                  NavigationRailDestination(
+                    icon: const Icon(Icons.settings_outlined),
+                    selectedIcon: Icon(Icons.settings_rounded, color: c.primary),
+                    label: const Text(AppStrings.navSettings),
+                  ),
+                ],
               ),
-              destinations: <NavigationRailDestination>[
-                NavigationRailDestination(
-                  icon: const Icon(Icons.home_outlined),
-                  selectedIcon: Icon(Icons.home_rounded, color: c.primary),
-                  label: const Text(AppStrings.navHome),
-                ),
-                NavigationRailDestination(
-                  icon: Badge(
-                    isLabelVisible: activeCount > 0,
-                    label: Text('$activeCount'),
-                    backgroundColor: c.primary,
-                    child: const Icon(Icons.download_outlined),
-                  ),
-                  selectedIcon: Badge(
-                    isLabelVisible: activeCount > 0,
-                    label: Text('$activeCount'),
-                    backgroundColor: c.primary,
-                    child: Icon(Icons.download_rounded, color: c.primary),
-                  ),
-                  label: const Text(AppStrings.navDownloads),
-                ),
-                NavigationRailDestination(
-                  icon: const Icon(Icons.settings_outlined),
-                  selectedIcon: Icon(Icons.settings_rounded, color: c.primary),
-                  label: const Text(AppStrings.navSettings),
-                ),
-              ],
-            ),
-            VerticalDivider(width: 1, thickness: 1, color: c.border),
-            Expanded(child: tabContent),
+            if (!expanded)
+              VerticalDivider(width: 1, thickness: 1, color: c.border),
+            Expanded(child: stacked),
           ],
         ),
       );
     }
 
     return Scaffold(
-      body: tabContent,
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: c.surface,
-          border: Border(top: BorderSide(color: c.border, width: 1)),
-          boxShadow: const <BoxShadow>[
-            BoxShadow(
-              color: AppColors.shadow,
-              blurRadius: 20,
-              offset: Offset(0, -4),
+      body: stacked,
+      bottomNavigationBar: expanded
+          ? null
+          : Container(
+              decoration: BoxDecoration(
+                color: c.surface,
+                border: Border(top: BorderSide(color: c.border, width: 1)),
+                boxShadow: const <BoxShadow>[
+                  BoxShadow(
+                    color: AppColors.shadow,
+                    blurRadius: 20,
+                    offset: Offset(0, -4),
+                  ),
+                ],
+              ),
+              child: SafeArea(
+                top: false,
+                child: Row(
+                  children: <Widget>[
+                    _NavItem(
+                      icon: tab == 0 ? Icons.home_rounded : Icons.home_outlined,
+                      label: AppStrings.navHome,
+                      isSelected: tab == 0,
+                      badge: 0,
+                      onTap: () =>
+                          ref.read(tabIndexProvider.notifier).state = 0,
+                    ),
+                    _NavItem(
+                      icon: tab == 1
+                          ? Icons.search_rounded
+                          : Icons.search_outlined,
+                      label: AppStrings.navSearch,
+                      isSelected: tab == 1,
+                      badge: 0,
+                      onTap: () =>
+                          ref.read(tabIndexProvider.notifier).state = 1,
+                    ),
+                    _NavItem(
+                      icon: tab == 2
+                          ? Icons.video_library_rounded
+                          : Icons.video_library_outlined,
+                      label: AppStrings.navLibrary,
+                      isSelected: tab == 2,
+                      badge: activeCount,
+                      onTap: () =>
+                          ref.read(tabIndexProvider.notifier).state = 2,
+                    ),
+                    _NavItem(
+                      icon: tab == 3
+                          ? Icons.settings_rounded
+                          : Icons.settings_outlined,
+                      label: AppStrings.navSettings,
+                      isSelected: tab == 3,
+                      badge: 0,
+                      onTap: () =>
+                          ref.read(tabIndexProvider.notifier).state = 3,
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ],
-        ),
-        child: SafeArea(
-          top: false,
-          child: Row(
-            children: <Widget>[
-              _NavItem(
-                icon: tab == 0 ? Icons.home_rounded : Icons.home_outlined,
-                label: AppStrings.navHome,
-                isSelected: tab == 0,
-                badge: 0,
-                onTap: () => ref.read(tabIndexProvider.notifier).state = 0,
-              ),
-              _NavItem(
-                icon: Icons.download_rounded,
-                label: AppStrings.navDownloads,
-                isSelected: tab == 1,
-                badge: activeCount,
-                onTap: () => ref.read(tabIndexProvider.notifier).state = 1,
-              ),
-              _NavItem(
-                icon: tab == 2
-                    ? Icons.settings_rounded
-                    : Icons.settings_outlined,
-                label: AppStrings.navSettings,
-                isSelected: tab == 2,
-                badge: 0,
-                onTap: () => ref.read(tabIndexProvider.notifier).state = 2,
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

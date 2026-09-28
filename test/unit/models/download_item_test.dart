@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:yt_downloader/data/models/download_item.dart';
-import 'package:yt_downloader/data/models/video_format.dart';
+import 'package:yxz_tube/data/models/download_item.dart';
+import 'package:yxz_tube/data/models/video_format.dart';
 
 void main() {
   const VideoFormat fmt = VideoFormat(

@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:yt_downloader/core/constants/app_strings.dart';
-import 'package:yt_downloader/core/theme/app_theme.dart';
-import 'package:yt_downloader/data/models/app_download_record.dart';
-import 'package:yt_downloader/data/services/app_download_registry.dart';
-import 'package:yt_downloader/presentation/screens/download/download_screen.dart';
+import 'package:yxz_tube/core/constants/app_strings.dart';
+import 'package:yxz_tube/core/theme/app_theme.dart';
+import 'package:yxz_tube/data/models/app_download_record.dart';
+import 'package:yxz_tube/data/services/app_download_registry.dart';
+import 'package:yxz_tube/presentation/screens/download/download_screen.dart';
 
 class FakeAppDownloadRegistry extends AppDownloadRegistry {
   FakeAppDownloadRegistry(this._initial);

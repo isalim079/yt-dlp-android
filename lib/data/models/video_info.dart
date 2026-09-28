@@ -14,6 +14,7 @@ class VideoInfo {
     this.uploader,
     this.uploadDate,
     this.viewCount,
+    this.channelUrl,
   });
 
   /// Video title.
@@ -36,6 +37,9 @@ class VideoInfo {
 
   /// View count when exposed by the extractor.
   final int? viewCount;
+
+  /// Channel videos URL when exposed by the extractor.
+  final String? channelUrl;
 
   /// Duration as `HH:MM:SS` or `MM:SS`.
   String get formattedDuration {

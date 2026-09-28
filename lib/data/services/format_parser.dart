@@ -69,6 +69,10 @@ abstract final class FormatParser {
       final String? uploader = m['uploader']?.toString();
       final String? uploadDate = m['upload_date']?.toString();
       final int? views = _readInt(m['view_count']);
+      final String? channelUrl =
+          m['channel_url']?.toString() ??
+          m['uploader_url']?.toString() ??
+          m['channel']?.toString();
       return VideoInfo(
         title: title,
         url: url,
@@ -77,6 +81,7 @@ abstract final class FormatParser {
         uploader: uploader,
         uploadDate: uploadDate,
         viewCount: views,
+        channelUrl: channelUrl,
       );
     } on FormatException catch (e) {
       throw YtdlpException(
@@ -111,12 +116,30 @@ abstract final class FormatParser {
             continue;
           }
           final String et = e['title']?.toString() ?? '';
-          final String eu =
+          final String? eid = e['id']?.toString();
+          String eu =
               e['url']?.toString() ?? e['webpage_url']?.toString() ?? '';
+          if (eu.isEmpty && eid != null && eid.isNotEmpty) {
+            eu = eid;
+          }
           if (eu.isEmpty) {
             continue;
           }
-          entries.add(PlaylistEntry(title: et, url: eu));
+          final String? thumb = _pickThumbnail(e);
+          entries.add(
+            PlaylistEntry(
+              title: et,
+              url: eu,
+              id: eid,
+              thumbnail: thumb,
+              duration: _readInt(e['duration']),
+              uploader:
+                  e['uploader']?.toString() ?? e['channel']?.toString(),
+              channelUrl:
+                  e['channel_url']?.toString() ??
+                  e['uploader_url']?.toString(),
+            ),
+          );
         }
       }
       return PlaylistInfo(

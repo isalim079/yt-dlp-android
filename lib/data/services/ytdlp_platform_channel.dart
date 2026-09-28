@@ -26,10 +26,13 @@ class YtdlpPlatformChannel {
   }
 
   /// Fetches metadata/formats payload as raw yt-dlp JSON.
-  static Future<String> fetchFormats(String url) async {
+  static Future<String> fetchFormats(
+    String url, {
+    String playerClient = 'android,web',
+  }) async {
     final String? json = await _channel.invokeMethod<String>(
       'fetchFormats',
-      <String, dynamic>{'url': url},
+      <String, dynamic>{'url': url, 'playerClient': playerClient},
     );
     return json ?? '';
   }
@@ -65,6 +68,7 @@ class YtdlpPlatformChannel {
     required String subtitleLanguage,
     required bool skipExisting,
     required String rateLimit,
+    String playerClient = 'android,web',
   }) async {
     final String? id = await _channel
         .invokeMethod<String>('download', <String, dynamic>{
@@ -79,6 +83,7 @@ class YtdlpPlatformChannel {
           'subtitleLanguage': subtitleLanguage,
           'skipExisting': skipExisting,
           'rateLimit': rateLimit,
+          'playerClient': playerClient,
         });
     return id ?? processId;
   }
@@ -107,5 +112,24 @@ class YtdlpPlatformChannel {
   /// Shares a downloaded file using the system share sheet.
   static Future<void> shareFile(String path) async {
     await _channel.invokeMethod<void>('shareFile', <String, dynamic>{'path': path});
+  }
+
+  /// Updates the bundled yt-dlp binary (Android youtubedl-android).
+  static Future<String> updateYoutubeDL() async {
+    final String? status = await _channel.invokeMethod<String>('updateYoutubeDL');
+    return status ?? 'unknown';
+  }
+
+  /// Enters Android picture-in-picture if supported.
+  static Future<bool> enterPictureInPicture() async {
+    final bool? ok = await _channel.invokeMethod<bool>('enterPip');
+    return ok ?? false;
+  }
+
+  /// Starts or stops the media playback foreground service.
+  static Future<void> setPlaybackService({required bool active}) async {
+    await _channel.invokeMethod<void>('setPlaybackService', <String, dynamic>{
+      'active': active,
+    });
   }
 }

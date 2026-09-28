@@ -29,6 +29,9 @@ class SettingsRepository {
   static const String _playlistSubfolderKey = '${_keyPrefix}playlist_subfolder';
   static const String _useHardwareAccelerationKey =
       '${_keyPrefix}use_hw_acceleration';
+  static const String _playbackQualityKey = '${_keyPrefix}playback_quality';
+  static const String _playerClientKey = '${_keyPrefix}player_client';
+  static const String _backgroundPlaybackKey = '${_keyPrefix}background_playback';
 
   /// Loads all settings from SharedPreferences.
   ///
@@ -84,6 +87,18 @@ class SettingsRepository {
       createSubfolderForPlaylists:
           prefs.getBool(_playlistSubfolderKey) ??
           AppSettings.defaults.createSubfolderForPlaylists,
+      playbackQuality: PlaybackQualitySetting.values.firstWhere(
+        (PlaybackQualitySetting q) =>
+            q.name == prefs.getString(_playbackQualityKey),
+        orElse: () => AppSettings.defaults.playbackQuality,
+      ),
+      playerClient: PlayerClientPreset.values.firstWhere(
+        (PlayerClientPreset c) => c.name == prefs.getString(_playerClientKey),
+        orElse: () => AppSettings.defaults.playerClient,
+      ),
+      backgroundPlayback:
+          prefs.getBool(_backgroundPlaybackKey) ??
+          AppSettings.defaults.backgroundPlayback,
     );
   }
 
@@ -111,6 +126,9 @@ class SettingsRepository {
       _playlistSubfolderKey,
       settings.createSubfolderForPlaylists,
     );
+    await prefs.setString(_playbackQualityKey, settings.playbackQuality.name);
+    await prefs.setString(_playerClientKey, settings.playerClient.name);
+    await prefs.setBool(_backgroundPlaybackKey, settings.backgroundPlayback);
   }
 
   /// Saves one settings field using its full preference [key].
@@ -166,5 +184,8 @@ class SettingsRepository {
     await prefs.remove(_maxSpeedKbpsKey);
     await prefs.remove(_skipExistingKey);
     await prefs.remove(_playlistSubfolderKey);
+    await prefs.remove(_playbackQualityKey);
+    await prefs.remove(_playerClientKey);
+    await prefs.remove(_backgroundPlaybackKey);
   }
 }

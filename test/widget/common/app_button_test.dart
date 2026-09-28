@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:yt_downloader/presentation/widgets/common/app_button.dart';
+import 'package:yxz_tube/presentation/widgets/common/app_button.dart';
 
 import '../../helpers/test_helpers.dart';
 

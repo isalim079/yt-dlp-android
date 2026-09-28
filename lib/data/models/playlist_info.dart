@@ -4,13 +4,36 @@ library;
 /// One row in a flat playlist listing.
 class PlaylistEntry {
   /// Creates a [PlaylistEntry].
-  const PlaylistEntry({required this.title, required this.url});
+  const PlaylistEntry({
+    required this.title,
+    required this.url,
+    this.id,
+    this.thumbnail,
+    this.duration,
+    this.uploader,
+    this.channelUrl,
+  });
 
   /// Entry title when known.
   final String title;
 
   /// Direct URL for the entry.
   final String url;
+
+  /// YouTube video id when present in flat JSON.
+  final String? id;
+
+  /// Thumbnail URL when present.
+  final String? thumbnail;
+
+  /// Duration in seconds when present.
+  final int? duration;
+
+  /// Uploader / channel display name.
+  final String? uploader;
+
+  /// Channel URL when present.
+  final String? channelUrl;
 }
 
 /// Summary of a playlist and a preview of its entries.

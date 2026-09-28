@@ -13,6 +13,7 @@ import '../../../data/models/app_settings.dart';
 import '../../../data/providers/binary_path_provider.dart';
 import '../../../data/providers/download_providers.dart';
 import '../../../data/providers/settings_providers.dart';
+import '../../../data/services/binary_manager.dart';
 import '../../widgets/common/app_snackbar.dart';
 
 /// Displays all user preferences grouped into sections.
@@ -70,6 +71,7 @@ class SettingsScreen extends ConsumerWidget {
           ),
           children: <Widget>[
             _downloadLocationSection(context, ref, settings),
+            _playbackSection(context, ref, settings),
             _videoQualitySection(context, ref, settings),
             _downloadOptionsSection(context, ref, settings),
             _advancedSection(context, ref, settings),
@@ -127,6 +129,67 @@ class SettingsScreen extends ConsumerWidget {
                     (AppSettings s) =>
                         s.copyWith(createSubfolderForPlaylists: value),
                   );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _playbackSection(
+    BuildContext context,
+    WidgetRef ref,
+    AppSettings settings,
+  ) {
+    return _SettingsSection(
+      title: AppStrings.sectionPlayback,
+      children: <Widget>[
+        _SettingsTile(
+          icon: Icons.play_circle_outline_rounded,
+          title: AppStrings.tilePlaybackQuality,
+          subtitle: settings.playbackQuality.label,
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () => _showPicker<PlaybackQualitySetting>(
+            context,
+            title: AppStrings.choosePlaybackQualityTitle,
+            options: PlaybackQualitySetting.values,
+            selectedValue: settings.playbackQuality,
+            labelBuilder: (PlaybackQualitySetting value) => value.label,
+            onSelected: (PlaybackQualitySetting value) {
+              ref.read(settingsProvider.notifier).updateSetting(
+                (AppSettings s) => s.copyWith(playbackQuality: value),
+              );
+            },
+          ),
+        ),
+        _SettingsTile(
+          icon: Icons.devices_other_outlined,
+          title: AppStrings.tilePlayerClient,
+          subtitle: settings.playerClient.label,
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () => _showPicker<PlayerClientPreset>(
+            context,
+            title: AppStrings.choosePlayerClientTitle,
+            options: PlayerClientPreset.values,
+            selectedValue: settings.playerClient,
+            labelBuilder: (PlayerClientPreset value) => value.label,
+            onSelected: (PlayerClientPreset value) {
+              ref.read(settingsProvider.notifier).updateSetting(
+                (AppSettings s) => s.copyWith(playerClient: value),
+              );
+            },
+          ),
+        ),
+        _SettingsTile(
+          icon: Icons.headphones_outlined,
+          title: AppStrings.tileBackgroundPlayback,
+          subtitle: AppStrings.tileBackgroundPlaybackSub,
+          trailing: Switch.adaptive(
+            value: settings.backgroundPlayback,
+            onChanged: (bool value) {
+              ref.read(settingsProvider.notifier).updateSetting(
+                (AppSettings s) => s.copyWith(backgroundPlayback: value),
+              );
             },
           ),
         ),
@@ -426,6 +489,32 @@ class SettingsScreen extends ConsumerWidget {
           icon: Icons.terminal_rounded,
           title: AppStrings.tileYtdlpVersion,
           subtitle: versionAsync.valueOrNull ?? AppStrings.loading,
+        ),
+        _SettingsTile(
+          icon: Icons.system_update_alt_rounded,
+          title: AppStrings.tileUpdateYtdlp,
+          subtitle: AppStrings.tileUpdateYtdlpSub,
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () async {
+            AppSnackbar.showInfo(context, AppStrings.ytdlpUpdating);
+            try {
+              final String status = await const BinaryManager().updateYoutubeDL();
+              ref.invalidate(ytdlpVersionProvider);
+              if (!context.mounted) {
+                return;
+              }
+              final String lower = status.toLowerCase();
+              if (lower.contains('already')) {
+                AppSnackbar.showSuccess(context, AppStrings.ytdlpAlreadyLatest);
+              } else {
+                AppSnackbar.showSuccess(context, AppStrings.ytdlpUpdated);
+              }
+            } on Object {
+              if (context.mounted) {
+                AppSnackbar.showError(context, AppStrings.ytdlpUpdateFailed);
+              }
+            }
+          },
         ),
         _SettingsTile(
           icon: Icons.bug_report_outlined,

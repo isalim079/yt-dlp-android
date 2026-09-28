@@ -233,6 +233,33 @@ class BinaryManager {
     AppLogger.i('Cleared yt-dlp binary cache keys');
   }
 
+  /// Updates yt-dlp in place (Android library or `yt-dlp -U` on desktop).
+  Future<String> updateYoutubeDL() async {
+    if (Platform.isAndroid) {
+      final String status = await YtdlpPlatformChannel.updateYoutubeDL();
+      _cachedVersion = null;
+      AppLogger.i('yt-dlp update status: $status');
+      return status;
+    }
+    final String binaryPath = await initialize();
+    final YtdlpLaunchCommand cmd = YtdlpLaunchCommand.from(binaryPath, <String>[
+      '-U',
+    ]);
+    final ProcessResult result = await Process.run(
+      cmd.executable,
+      cmd.arguments,
+      runInShell: false,
+    ).timeout(const Duration(seconds: 120));
+    _cachedVersion = null;
+    final String out =
+        '${result.stdout ?? ''}\n${result.stderr ?? ''}'.trim();
+    AppLogger.i('yt-dlp -U: $out');
+    if (result.exitCode != 0) {
+      throw Exception(out.isEmpty ? 'yt-dlp update failed' : out);
+    }
+    return out.isEmpty ? 'updated' : out;
+  }
+
   /// Runs `yt-dlp --version` and returns the version string.
   ///
   /// Returns `'Unknown'` on failure and caches successful reads.

@@ -4,6 +4,7 @@ library;
 import '../../core/constants/app_strings.dart';
 import '../../core/exceptions/ytdlp_exception.dart';
 import '../models/app_settings.dart';
+import '../models/playback_resolved.dart';
 import '../models/playlist_info.dart';
 import '../models/video_format.dart';
 import '../models/video_info.dart';
@@ -32,12 +33,33 @@ class YtdlpService {
   }
 
   /// Always throws [YtdlpException] on web.
-  Future<List<VideoFormat>> fetchFormats(String url) async {
+  Future<List<VideoFormat>> fetchFormats(
+    String url, {
+    String playerClient = 'android,web',
+  }) async {
     throw const YtdlpException(AppStrings.errorUnknown);
   }
 
   /// Always throws [YtdlpException] on web.
-  Future<VideoInfo> fetchVideoInfo(String url) async {
+  Future<VideoInfo> fetchVideoInfo(
+    String url, {
+    String playerClient = 'android,web',
+  }) async {
+    throw const YtdlpException(AppStrings.errorUnknown);
+  }
+
+  /// Always throws [YtdlpException] on web.
+  Future<PlaybackResolved> resolvePlayback(
+    String url, {
+    PlaybackQuality quality = PlaybackQuality.auto,
+    String playerClient = 'android,web',
+    bool forceRefresh = false,
+  }) async {
+    throw const YtdlpException(AppStrings.errorUnknown);
+  }
+
+  /// Always throws [YtdlpException] on web.
+  Future<PlaylistInfo> fetchFlatListing(String source) async {
     throw const YtdlpException(AppStrings.errorUnknown);
   }
 

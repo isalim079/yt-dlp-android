@@ -575,6 +575,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           if (showDownload) ...<Widget>[
                             const SizedBox(height: AppDimensions.spacingLg),
                             AppButton(
+                              label: AppStrings.playVideo,
+                              icon: const Icon(Icons.play_arrow_rounded),
+                              outlined: true,
+                              onPressed: () async {
+                                await homeCtrl.playVideo(videoInfo: videoInfo);
+                                if (context.mounted &&
+                                    Navigator.of(context).canPop()) {
+                                  Navigator.of(context).pop();
+                                }
+                              },
+                            ),
+                            const SizedBox(height: AppDimensions.spaceSm),
+                            AppButton(
                               label: AppStrings.downloadButton,
                               icon: const Icon(Icons.download_rounded),
                               onPressed: () => homeCtrl.startDownload(

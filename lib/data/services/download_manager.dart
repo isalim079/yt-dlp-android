@@ -335,6 +335,7 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
               settings.limitDownloadSpeed && settings.maxDownloadSpeedKbps > 0
               ? '${settings.maxDownloadSpeedKbps}K'
               : '',
+          playerClient: settings.playerClient.ytDlpValue,
         );
         _activeAndroidProcessIds.add(processId);
         AppLogger.i('Platform channel download started: $processId');

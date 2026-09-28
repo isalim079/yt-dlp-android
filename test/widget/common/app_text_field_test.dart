@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:yt_downloader/presentation/widgets/common/app_text_field.dart';
+import 'package:yxz_tube/presentation/widgets/common/app_text_field.dart';
 
 import '../../helpers/test_helpers.dart';
 

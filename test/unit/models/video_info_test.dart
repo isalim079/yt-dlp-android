@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:yt_downloader/core/constants/app_strings.dart';
-import 'package:yt_downloader/data/models/video_info.dart';
+import 'package:yxz_tube/core/constants/app_strings.dart';
+import 'package:yxz_tube/data/models/video_info.dart';
 
 void main() {
   group('VideoInfo', () {

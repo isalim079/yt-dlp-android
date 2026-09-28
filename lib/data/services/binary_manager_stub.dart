@@ -21,4 +21,9 @@ class BinaryManager {
   Future<String> getYtdlpVersion() async {
     return 'Unknown';
   }
+
+  /// Not supported on web.
+  Future<String> updateYoutubeDL() async {
+    throw UnsupportedError('yt-dlp cannot be updated on this platform');
+  }
 }

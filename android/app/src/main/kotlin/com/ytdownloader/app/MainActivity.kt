@@ -70,6 +70,7 @@ class MainActivity : FlutterActivity() {
 
                 "fetchFormats" -> {
                     val url = call.argument<String>("url") ?: ""
+                    val playerClient = call.argument<String>("playerClient") ?: "android,web"
                     scope.launch {
                         try {
                             val request = YoutubeDLRequest(url)
@@ -80,7 +81,7 @@ class MainActivity : FlutterActivity() {
                             // player clients used by the eventual download. Otherwise
                             // YouTube can return an ID here that is unavailable when
                             // `download` reruns yt-dlp with android,web clients.
-                            request.addOption("--extractor-args", "youtube:player_client=android,web")
+                            request.addOption("--extractor-args", youtubeExtractorArgs(playerClient))
                             val response = YoutubeDL.getInstance().execute(request)
                             withContext(Dispatchers.Main) {
                                 result.success(response.out)
@@ -101,6 +102,8 @@ class MainActivity : FlutterActivity() {
                             request.addOption("--flat-playlist")
                             request.addOption("--dump-single-json")
                             request.addOption("--playlist-items", "1")
+                            request.addOption("--no-warnings")
+                            request.addOption("--no-update")
                             val response = YoutubeDL.getInstance().execute(request)
                             val json = JSONObject(response.out)
                             val isPlaylist = json.optString("_type") == "playlist"
@@ -122,6 +125,9 @@ class MainActivity : FlutterActivity() {
                             val request = YoutubeDLRequest(url)
                             request.addOption("--flat-playlist")
                             request.addOption("--dump-single-json")
+                            request.addOption("--no-warnings")
+                            request.addOption("--no-update")
+                            request.addOption("--playlist-end", "40")
                             val response = YoutubeDL.getInstance().execute(request)
                             withContext(Dispatchers.Main) {
                                 result.success(response.out)
@@ -145,6 +151,7 @@ class MainActivity : FlutterActivity() {
                     val subtitleLanguage = call.argument<String>("subtitleLanguage") ?: "en"
                     val skipExisting = call.argument<Boolean>("skipExisting") ?: true
                     val rateLimit = call.argument<String>("rateLimit") ?: ""
+                    val playerClient = call.argument<String>("playerClient") ?: "android,web"
                     val processId = call.argument<String>("processId") ?: UUID.randomUUID().toString()
                     Log.d("YTDownloader", "Starting download: url=$url format=$formatId output=$outputPath")
 
@@ -160,6 +167,7 @@ class MainActivity : FlutterActivity() {
                         subtitleLanguage = subtitleLanguage,
                         skipExisting = skipExisting,
                         rateLimit = rateLimit,
+                        playerClient = playerClient,
                     )
 
                     val job = scope.launch {
@@ -207,6 +215,7 @@ class MainActivity : FlutterActivity() {
                                         subtitleLanguage = subtitleLanguage,
                                         skipExisting = skipExisting,
                                         rateLimit = rateLimit,
+                                        playerClient = playerClient,
                                     )
                                     executeWithProgress(fallbackRequest, processId)
                                     val completionData = mapOf(
@@ -313,6 +322,54 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
+                "updateYoutubeDL" -> {
+                    scope.launch {
+                        try {
+                            val status = YoutubeDL.getInstance().updateYoutubeDL(
+                                this@MainActivity,
+                                YoutubeDL.UpdateChannel.STABLE,
+                            )
+                            withContext(Dispatchers.Main) {
+                                result.success(status.toString())
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                result.error("UPDATE_ERROR", e.message, null)
+                            }
+                        }
+                    }
+                }
+
+                "enterPip" -> {
+                    try {
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                            val params = android.app.PictureInPictureParams.Builder()
+                                .setAspectRatio(android.util.Rational(16, 9))
+                                .build()
+                            val entered = enterPictureInPictureMode(params)
+                            result.success(entered)
+                        } else {
+                            result.success(false)
+                        }
+                    } catch (e: Exception) {
+                        result.error("PIP_ERROR", e.message, null)
+                    }
+                }
+
+                "setPlaybackService" -> {
+                    val active = call.argument<Boolean>("active") ?: false
+                    try {
+                        if (active) {
+                            PlaybackForegroundService.start(this)
+                        } else {
+                            PlaybackForegroundService.stop(this)
+                        }
+                        result.success("ok")
+                    } catch (e: Exception) {
+                        result.error("PLAYBACK_SERVICE_ERROR", e.message, null)
+                    }
+                }
+
                 else -> result.notImplemented()
             }
         }
@@ -368,10 +425,11 @@ class MainActivity : FlutterActivity() {
         subtitleLanguage: String,
         skipExisting: Boolean,
         rateLimit: String,
+        playerClient: String = "android,web",
     ) {
         request.addOption("-o", "$outputPath/%(title)s.%(ext)s")
         request.addOption("--no-warnings")
-        request.addOption("--extractor-args", "youtube:player_client=android,web")
+        request.addOption("--extractor-args", youtubeExtractorArgs(playerClient))
         request.addOption("--parse-metadata", ":(?P<comment>Downloaded with yt-dlp App)")
         if (!isPlaylist) {
             request.addOption("--no-playlist")
@@ -396,5 +454,10 @@ class MainActivity : FlutterActivity() {
         if (rateLimit.isNotEmpty()) {
             request.addOption("--rate-limit", rateLimit)
         }
+    }
+
+    private fun youtubeExtractorArgs(playerClient: String): String {
+        val client = playerClient.ifBlank { "android,web" }
+        return "youtube:player_client=$client"
     }
 }

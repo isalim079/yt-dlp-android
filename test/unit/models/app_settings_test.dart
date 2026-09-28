@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:yt_downloader/data/models/app_settings.dart';
+import 'package:yxz_tube/data/models/app_settings.dart';
 
 void main() {
   group('AppSettings', () {
@@ -41,6 +41,12 @@ void main() {
       }
       for (final PreferredFormat f in PreferredFormat.values) {
         expect(f.label, isNotEmpty);
+      }
+      for (final PlaybackQualitySetting q in PlaybackQualitySetting.values) {
+        expect(q.label, isNotEmpty);
+      }
+      for (final PlayerClientPreset c in PlayerClientPreset.values) {
+        expect(c.label, isNotEmpty);
       }
     });
   });

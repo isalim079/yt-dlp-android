@@ -20,6 +20,9 @@ class AppSettings {
     required this.maxDownloadSpeedKbps,
     required this.skipExistingFiles,
     required this.createSubfolderForPlaylists,
+    required this.playbackQuality,
+    required this.playerClient,
+    required this.backgroundPlayback,
   });
 
   /// Output path where yt-dlp writes files.
@@ -38,6 +41,9 @@ class AppSettings {
   final int maxDownloadSpeedKbps;
   final bool skipExistingFiles;
   final bool createSubfolderForPlaylists;
+  final PlaybackQualitySetting playbackQuality;
+  final PlayerClientPreset playerClient;
+  final bool backgroundPlayback;
 
   /// Default settings used on first launch.
   static const AppSettings defaults = AppSettings(
@@ -56,6 +62,9 @@ class AppSettings {
     maxDownloadSpeedKbps: 2048,
     skipExistingFiles: true,
     createSubfolderForPlaylists: true,
+    playbackQuality: PlaybackQualitySetting.auto,
+    playerClient: PlayerClientPreset.androidWeb,
+    backgroundPlayback: true,
   );
 
   /// Returns a copy with optional field overrides.
@@ -75,6 +84,9 @@ class AppSettings {
     int? maxDownloadSpeedKbps,
     bool? skipExistingFiles,
     bool? createSubfolderForPlaylists,
+    PlaybackQualitySetting? playbackQuality,
+    PlayerClientPreset? playerClient,
+    bool? backgroundPlayback,
   }) {
     return AppSettings(
       outputPath: outputPath ?? this.outputPath,
@@ -95,6 +107,9 @@ class AppSettings {
       skipExistingFiles: skipExistingFiles ?? this.skipExistingFiles,
       createSubfolderForPlaylists:
           createSubfolderForPlaylists ?? this.createSubfolderForPlaylists,
+      playbackQuality: playbackQuality ?? this.playbackQuality,
+      playerClient: playerClient ?? this.playerClient,
+      backgroundPlayback: backgroundPlayback ?? this.backgroundPlayback,
     );
   }
 
@@ -116,6 +131,9 @@ class AppSettings {
       'maxDownloadSpeedKbps': maxDownloadSpeedKbps,
       'skipExistingFiles': skipExistingFiles,
       'createSubfolderForPlaylists': createSubfolderForPlaylists,
+      'playbackQuality': playbackQuality.name,
+      'playerClient': playerClient.name,
+      'backgroundPlayback': backgroundPlayback,
     };
   }
 
@@ -161,6 +179,16 @@ class AppSettings {
       createSubfolderForPlaylists:
           (json['createSubfolderForPlaylists'] as bool?) ??
           defaults.createSubfolderForPlaylists,
+      playbackQuality: PlaybackQualitySetting.values.firstWhere(
+        (PlaybackQualitySetting value) => value.name == json['playbackQuality'],
+        orElse: () => defaults.playbackQuality,
+      ),
+      playerClient: PlayerClientPreset.values.firstWhere(
+        (PlayerClientPreset value) => value.name == json['playerClient'],
+        orElse: () => defaults.playerClient,
+      ),
+      backgroundPlayback:
+          (json['backgroundPlayback'] as bool?) ?? defaults.backgroundPlayback,
     );
   }
 }
@@ -194,6 +222,46 @@ enum DefaultQuality {
     DefaultQuality.p480 => '480p',
     DefaultQuality.p360 => '360p',
     DefaultQuality.audioOnly => 'Audio only',
+  };
+}
+
+enum PlaybackQualitySetting {
+  auto,
+  p1080,
+  p720,
+  p480,
+  p360;
+
+  /// Human readable label for picker rows.
+  String get label => switch (this) {
+    PlaybackQualitySetting.auto => 'Auto (best)',
+    PlaybackQualitySetting.p1080 => '1080p',
+    PlaybackQualitySetting.p720 => '720p',
+    PlaybackQualitySetting.p480 => '480p',
+    PlaybackQualitySetting.p360 => '360p',
+  };
+}
+
+enum PlayerClientPreset {
+  androidWeb,
+  androidVr,
+  web,
+  tv;
+
+  /// Value passed to `youtube:player_client=`.
+  String get ytDlpValue => switch (this) {
+    PlayerClientPreset.androidWeb => 'android,web',
+    PlayerClientPreset.androidVr => 'android_vr,web',
+    PlayerClientPreset.web => 'web',
+    PlayerClientPreset.tv => 'tv',
+  };
+
+  /// Human readable label for picker rows.
+  String get label => switch (this) {
+    PlayerClientPreset.androidWeb => 'Android + Web (default)',
+    PlayerClientPreset.androidVr => 'Android VR (SABR workaround)',
+    PlayerClientPreset.web => 'Web',
+    PlayerClientPreset.tv => 'TV',
   };
 }
 

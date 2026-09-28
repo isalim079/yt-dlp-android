@@ -8,6 +8,7 @@ import '../models/video_format.dart';
 import '../models/video_info.dart';
 import '../services/ytdlp_service.dart';
 import 'binary_path_provider.dart';
+import 'settings_providers.dart';
 
 /// Provides [YtdlpService] with the resolved binary path.
 ///
@@ -48,7 +49,10 @@ final formatsProvider = FutureProvider.autoDispose<List<VideoFormat>>((
     return <VideoFormat>[];
   }
   final YtdlpService service = ref.watch(ytdlpServiceProvider);
-  return service.fetchFormats(url);
+  final String client =
+      ref.watch(settingsProvider).valueOrNull?.playerClient.ytDlpValue ??
+      'android,web';
+  return service.fetchFormats(url, playerClient: client);
 });
 
 /// Fetches [VideoInfo] for the submitted URL when non-empty.
@@ -64,7 +68,10 @@ final videoInfoProvider = FutureProvider.autoDispose<VideoInfo?>((
     return null;
   }
   final YtdlpService service = ref.watch(ytdlpServiceProvider);
-  return service.fetchVideoInfo(url);
+  final String client =
+      ref.watch(settingsProvider).valueOrNull?.playerClient.ytDlpValue ??
+      'android,web';
+  return service.fetchVideoInfo(url, playerClient: client);
 });
 
 /// Loads [PlaylistInfo] when the submitted URL is a playlist.

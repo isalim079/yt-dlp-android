@@ -8,8 +8,11 @@ import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
 import '../../data/providers/app_navigation_providers.dart';
 import '../../data/providers/home_feedback_providers.dart';
+import '../../data/providers/player_provider.dart';
 import '../../data/providers/ytdlp_providers.dart';
+import '../../data/models/browse_video.dart';
 import '../utils/logger.dart';
+import '../utils/youtube_urls.dart';
 
 /// Handles URLs shared from other apps (e.g. YouTube → Share → YT Downloader).
 abstract final class ShareIntentHandler {
@@ -21,9 +24,7 @@ abstract final class ShareIntentHandler {
     ReceiveSharingIntent.instance.getInitialMedia().then((List<SharedMediaFile> media) {
       final String? text = _firstYoutubeSharedText(media);
       if (text != null) {
-        ref.read(urlInputProvider.notifier).state = text;
-        ref.read(shareIntentCounterProvider.notifier).state =
-            ref.read(shareIntentCounterProvider) + 1;
+        _applySharedUrl(ref, text);
         AppLogger.i('Share intent (initial): URL applied');
       }
       ReceiveSharingIntent.instance.reset();
@@ -35,10 +36,8 @@ abstract final class ShareIntentHandler {
       (List<SharedMediaFile> media) {
         final String? text = _firstYoutubeSharedText(media);
         if (text != null) {
-          ref.read(urlInputProvider.notifier).state = text;
+          _applySharedUrl(ref, text);
           ref.read(tabIndexProvider.notifier).state = 0;
-          ref.read(shareIntentCounterProvider.notifier).state =
-              ref.read(shareIntentCounterProvider) + 1;
           AppLogger.i('Share intent (stream): URL applied');
         }
       },
@@ -52,6 +51,22 @@ abstract final class ShareIntentHandler {
   static void dispose() {
     _mediaSub?.cancel();
     _mediaSub = null;
+  }
+
+  static void _applySharedUrl(WidgetRef ref, String text) {
+    ref.read(urlInputProvider.notifier).state = text;
+    ref.read(shareIntentCounterProvider.notifier).state =
+        ref.read(shareIntentCounterProvider) + 1;
+    final String id = YoutubeUrls.videoId(text) ?? text;
+    unawaited(
+      ref.read(playerControllerProvider.notifier).play(
+        BrowseVideo(
+          id: id,
+          title: text,
+          url: YoutubeUrls.watchUrl(text),
+        ),
+      ),
+    );
   }
 
   static String? _firstYoutubeSharedText(List<SharedMediaFile> media) {

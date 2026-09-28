@@ -19,6 +19,8 @@ import '../../../data/models/video_info.dart';
 import '../../../data/providers/app_navigation_providers.dart';
 import '../../../data/providers/download_providers.dart';
 import '../../../data/providers/home_feedback_providers.dart';
+import '../../../data/providers/library_providers.dart';
+import '../../../data/providers/player_provider.dart';
 import '../../../data/providers/settings_providers.dart';
 import '../../../data/providers/ytdlp_providers.dart';
 import '../../widgets/common/app_snackbar.dart';
@@ -186,11 +188,17 @@ class HomeScreenController extends AutoDisposeNotifier<HomeScreenState> {
           title: videoInfo.title,
           thumbnailUrl: videoInfo.thumbnail,
         );
-    ref.read(tabIndexProvider.notifier).state = 1;
+    ref.read(tabIndexProvider.notifier).state = 2;
+    ref.read(librarySectionProvider.notifier).state = LibrarySection.downloads;
     if (context.mounted) {
       AppSnackbar.showSuccess(context, AppStrings.downloadStarted);
     }
     AppLogger.i('Download added: ${videoInfo.title}');
+  }
+
+  /// Plays the resolved video in the in-app player.
+  Future<void> playVideo({required VideoInfo videoInfo}) async {
+    await ref.read(playerControllerProvider.notifier).playVideoInfo(videoInfo);
   }
 
   /// Enqueues every resolved playlist entry with the selected format.
@@ -226,7 +234,8 @@ class HomeScreenController extends AutoDisposeNotifier<HomeScreenState> {
           totalCount: info.count,
           entries: info.entries,
         );
-    ref.read(tabIndexProvider.notifier).state = 1;
+    ref.read(tabIndexProvider.notifier).state = 2;
+    ref.read(librarySectionProvider.notifier).state = LibrarySection.downloads;
     if (context.mounted) {
       AppSnackbar.showSuccess(context, AppStrings.downloadStarted);
     }

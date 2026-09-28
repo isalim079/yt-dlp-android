@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:yt_downloader/data/models/video_info.dart';
-import 'package:yt_downloader/presentation/widgets/download/video_info_card.dart';
+import 'package:yxz_tube/data/models/video_info.dart';
+import 'package:yxz_tube/presentation/widgets/download/video_info_card.dart';
 
 import '../../helpers/test_helpers.dart';
 

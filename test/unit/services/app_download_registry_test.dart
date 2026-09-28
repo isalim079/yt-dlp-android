@@ -3,10 +3,10 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:yt_downloader/data/models/app_download_record.dart';
-import 'package:yt_downloader/data/models/download_item.dart';
-import 'package:yt_downloader/data/models/video_format.dart';
-import 'package:yt_downloader/data/services/app_download_registry.dart';
+import 'package:yxz_tube/data/models/app_download_record.dart';
+import 'package:yxz_tube/data/models/download_item.dart';
+import 'package:yxz_tube/data/models/video_format.dart';
+import 'package:yxz_tube/data/services/app_download_registry.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

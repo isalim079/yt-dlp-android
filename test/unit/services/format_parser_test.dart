@@ -1,8 +1,8 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:yt_downloader/core/exceptions/ytdlp_exception.dart';
-import 'package:yt_downloader/data/services/format_parser.dart';
+import 'package:yxz_tube/core/exceptions/ytdlp_exception.dart';
+import 'package:yxz_tube/data/services/format_parser.dart';
 
 void main() {
   final String sampleJson = jsonEncode(<String, dynamic>{

@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:yt_downloader/data/providers/app_navigation_providers.dart';
-import 'package:yt_downloader/data/providers/ytdlp_providers.dart';
+import 'package:yxz_tube/data/providers/app_navigation_providers.dart';
+import 'package:yxz_tube/data/providers/ytdlp_providers.dart';
 
 void main() {
   group('urlInputProvider', () {

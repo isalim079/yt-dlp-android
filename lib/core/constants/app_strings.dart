@@ -40,6 +40,8 @@ abstract final class AppStrings {
   static const String navDownloads = 'Downloads';
   static const String navSettings = 'Settings';
   static const String navHome = 'Home';
+  static const String navSearch = 'Search';
+  static const String navLibrary = 'Library';
   static const String navGoHome = 'Go to Home';
 
   // Buttons
@@ -227,6 +229,12 @@ abstract final class AppStrings {
       'Request timed out. Check your connection.';
   static const String errorNoFormats =
       'No downloadable formats were found for this video.';
+  static const String errorNoPlaybackStreams =
+      'Could not find a playable stream for this video. Try another quality or player client.';
+  static const String errorPlaybackFailed =
+      'Playback failed. Retrying with a fallback stream…';
+  static const String errorExtractionBroken =
+      'YouTube changed something and this video could not be extracted. Update yt-dlp in Settings, then try again.';
   static const String errorVideoUnavailable =
       'This video is unavailable or restricted.';
   static const String errorPlaylistUnavailableItems =
@@ -344,4 +352,75 @@ abstract final class AppStrings {
   static String playlistVideosLine(int count) {
     return '$playlistVideosPrefix $count $playlistVideosWord';
   }
+
+  // Player
+  static const String playVideo = 'Play';
+  static const String playerQuality = 'Quality';
+  static const String playerSpeed = 'Speed';
+  static const String playerDownload = 'Download';
+  static const String addToPlaylist = 'Add to playlist';
+  static const String addedToPlaylist = 'Added to playlist';
+  static const String resolvingStream = 'Resolving stream…';
+  static const String relatedVideos = 'More from this channel';
+  static const String resumePlayback = 'Resume';
+  static const String pipButton = 'Picture in picture';
+  static const String playbackErrorTitle = 'Could not play';
+
+  // Home feed
+  static const String continueWatching = 'Continue watching';
+  static const String trendingNow = 'Popular';
+  static const String fromYourChannels = 'From channels you follow';
+  static const String pasteUrlTitle = 'Paste URL';
+  static const String pasteUrlSubtitle = 'Play or download a YouTube link';
+  static const String homeFeedEmpty =
+      'Follow channels or search to fill your home feed.';
+  static const String pullToRefresh = 'Pull to refresh';
+
+  // Search
+  static const String searchHint = 'Search YouTube';
+  static const String searchEmptyTitle = 'Search videos';
+  static const String searchEmptySubtitle =
+      'Find videos to play or download without ads.';
+  static const String searchNoResults = 'No results';
+  static const String recentSearches = 'Recent searches';
+  static const String deleteSearchTooltip = 'Remove';
+
+  // Library
+  static const String libraryTitle = 'Library';
+  static const String libraryHistory = 'History';
+  static const String libraryPlaylists = 'Playlists';
+  static const String libraryChannels = 'Channels';
+  static const String historyEmpty = 'Videos you watch will appear here.';
+  static const String playlistsEmpty = 'Create a playlist to save videos.';
+  static const String channelsEmpty = 'Follow a channel to see new uploads.';
+  static const String newPlaylist = 'New playlist';
+  static const String playlistNameHint = 'Playlist name';
+  static const String createPlaylist = 'Create';
+  static const String followChannel = 'Follow channel';
+  static const String unfollowChannel = 'Unfollow';
+  static const String channelFollowed = 'Channel followed';
+  static const String importPlaylist = 'Import YouTube playlist';
+  static const String playlistImported = 'Playlist imported';
+  static const String playAll = 'Play all';
+  static const String clearWatchHistory = 'Clear watch history';
+  static const String watchHistoryCleared = 'Watch history cleared';
+
+  // Settings — playback / survival
+  static const String sectionPlayback = 'PLAYBACK';
+  static const String tilePlaybackQuality = 'Default playback quality';
+  static const String tilePlayerClient = 'YouTube player client';
+  static const String tilePlayerClientSub =
+      'Change this if videos fail or stay stuck at 360p';
+  static const String tileBackgroundPlayback = 'Background playback';
+  static const String tileBackgroundPlaybackSub =
+      'Keep audio playing when the app is in the background';
+  static const String tileUpdateYtdlp = 'Update yt-dlp';
+  static const String tileUpdateYtdlpSub =
+      'Fetch the latest extractor. Use this when playback breaks.';
+  static const String ytdlpUpdating = 'Updating yt-dlp…';
+  static const String ytdlpUpdated = 'yt-dlp updated';
+  static const String ytdlpAlreadyLatest = 'yt-dlp is already up to date';
+  static const String ytdlpUpdateFailed = 'Could not update yt-dlp';
+  static const String choosePlayerClientTitle = 'Choose player client';
+  static const String choosePlaybackQualityTitle = 'Choose playback quality';
 }

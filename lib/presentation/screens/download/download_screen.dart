@@ -27,7 +27,10 @@ import 'downloaded_files_screen.dart';
 /// Lists active and completed downloads with aggregate status and interactive filter tabs.
 class DownloadScreen extends ConsumerStatefulWidget {
   /// Creates the downloads tab content.
-  const DownloadScreen({super.key});
+  const DownloadScreen({super.key, this.embedded = false});
+
+  /// When true, omits the outer [AppBar] so the screen can sit in Library.
+  final bool embedded;
 
   @override
   ConsumerState<DownloadScreen> createState() => _DownloadScreenState();
@@ -146,7 +149,9 @@ class _DownloadScreenState extends ConsumerState<DownloadScreen> {
 
     return Scaffold(
       backgroundColor: c.background,
-      appBar: AppBar(
+      appBar: widget.embedded
+          ? null
+          : AppBar(
         elevation: 0,
         scrolledUnderElevation: 0,
         backgroundColor: c.background,

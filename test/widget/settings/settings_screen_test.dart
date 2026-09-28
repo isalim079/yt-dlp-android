@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:yt_downloader/core/constants/app_strings.dart';
-import 'package:yt_downloader/core/theme/app_theme.dart';
-import 'package:yt_downloader/data/models/app_settings.dart';
-import 'package:yt_downloader/data/providers/settings_providers.dart';
-import 'package:yt_downloader/presentation/screens/settings/settings_screen.dart';
+import 'package:yxz_tube/core/constants/app_strings.dart';
+import 'package:yxz_tube/core/theme/app_theme.dart';
+import 'package:yxz_tube/data/models/app_settings.dart';
+import 'package:yxz_tube/data/providers/settings_providers.dart';
+import 'package:yxz_tube/presentation/screens/settings/settings_screen.dart';
 
 class MockSettingsNotifier extends SettingsNotifier {
   @override

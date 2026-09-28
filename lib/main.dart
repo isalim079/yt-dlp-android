@@ -6,6 +6,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:media_kit/media_kit.dart';
 
 import 'app_bootstrap.dart';
 import 'core/utils/desktop_window_stub.dart'
@@ -15,6 +16,7 @@ import 'core/widgets/error_boundary.dart';
 
 Future<void> main() async {
   final WidgetsBinding widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+  MediaKit.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
   FlutterError.onError = (FlutterErrorDetails details) {

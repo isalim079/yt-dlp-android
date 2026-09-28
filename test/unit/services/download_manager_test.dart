@@ -3,12 +3,12 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:yt_downloader/data/models/app_settings.dart';
-import 'package:yt_downloader/data/models/download_item.dart';
-import 'package:yt_downloader/data/models/video_format.dart';
-import 'package:yt_downloader/data/providers/download_providers.dart';
-import 'package:yt_downloader/data/providers/settings_providers.dart';
-import 'package:yt_downloader/data/services/download_manager.dart';
+import 'package:yxz_tube/data/models/app_settings.dart';
+import 'package:yxz_tube/data/models/download_item.dart';
+import 'package:yxz_tube/data/models/video_format.dart';
+import 'package:yxz_tube/data/providers/download_providers.dart';
+import 'package:yxz_tube/data/providers/settings_providers.dart';
+import 'package:yxz_tube/data/services/download_manager.dart';
 
 class FakeSettingsNotifier extends SettingsNotifier {
   @override
