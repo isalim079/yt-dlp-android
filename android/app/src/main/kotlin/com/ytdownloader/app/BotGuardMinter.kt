@@ -187,7 +187,11 @@ class BotGuardMinter(private val context: Context) {
         }
         var js = parsed.interpreterJavascript
         if (js.isBlank() && parsed.interpreterUrl.isNotBlank()) {
-            js = fetchText(absoluteInterpreterUrl(parsed.interpreterUrl))
+            if (BotGuardChallengeParser.isInterpreterUrl(parsed.interpreterUrl)) {
+                js = fetchText(absoluteInterpreterUrl(parsed.interpreterUrl))
+            } else {
+                js = parsed.interpreterUrl
+            }
         }
         if (js.isBlank() || parsed.program.isBlank() || parsed.globalName.isBlank()) {
             throw IllegalStateException("Create missing fields program/globalName/js")
@@ -246,16 +250,22 @@ class BotGuardMinter(private val context: Context) {
 
     private fun absoluteInterpreterUrl(raw: String): String {
         val trimmed = raw.trim()
+        if (!BotGuardChallengeParser.isInterpreterUrl(trimmed)) {
+            throw IllegalStateException("Interpreter URL is not a host")
+        }
         return when {
             trimmed.startsWith("//") -> "https:$trimmed"
             trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
-            trimmed.startsWith("/") -> "https://www.youtube.com$trimmed"
             else -> "https://www.youtube.com/$trimmed"
         }
     }
 
     private fun fetchText(url: String): String {
-        val conn = URL(url).openConnection() as HttpURLConnection
+        val conn = try {
+            URL(url).openConnection() as HttpURLConnection
+        } catch (e: Exception) {
+            throw IllegalStateException("Invalid interpreter URL: ${url.take(80)}")
+        }
         conn.requestMethod = "GET"
         conn.connectTimeout = 20_000
         conn.readTimeout = 20_000

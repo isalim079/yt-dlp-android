@@ -142,28 +142,50 @@ object BotGuardChallengeParser {
         )
     }
 
+    /**
+     * Trusted-resource URLs are short, single-line, and have a hostname.
+     * BotGuard VM source often starts with `//# sourceMappingURL=...` — that is
+     * a JS comment, not a protocol-relative URL.
+     */
+    fun isInterpreterUrl(value: String): Boolean {
+        val trimmed = value.trim()
+        if (trimmed.isEmpty() ||
+            trimmed.length > 2048 ||
+            trimmed.contains('\n') ||
+            trimmed.contains('\r')
+        ) {
+            return false
+        }
+        if (trimmed.startsWith("//#") ||
+            trimmed.startsWith("// ") ||
+            trimmed.startsWith("/*")
+        ) {
+            return false
+        }
+        return HOST_URL.matches(trimmed)
+    }
+
     private fun splitScriptAndUrl(
         js: String,
         url: String,
         program: String,
         globalName: String,
     ): BotGuardChallenge {
-        val looksLikeUrl = js.startsWith("//") ||
-            js.startsWith("http://") ||
-            js.startsWith("https://")
-        return if (looksLikeUrl && url.isBlank()) {
+        val jsIsUrl = isInterpreterUrl(js)
+        val urlIsUrl = isInterpreterUrl(url)
+        return if (jsIsUrl && !urlIsUrl) {
             BotGuardChallenge(
                 interpreterJavascript = "",
                 program = program,
                 globalName = globalName,
-                interpreterUrl = js,
+                interpreterUrl = js.trim(),
             )
         } else {
             BotGuardChallenge(
                 interpreterJavascript = js,
                 program = program,
                 globalName = globalName,
-                interpreterUrl = url,
+                interpreterUrl = if (urlIsUrl) url.trim() else "",
             )
         }
     }
@@ -207,4 +229,8 @@ object BotGuardChallengeParser {
             Base64.getDecoder().decode(cleaned)
         }.getOrNull()
     }
+
+    private val HOST_URL = Regex(
+        "^(https?:)?//[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?(/\\S*)?$",
+    )
 }

@@ -3,6 +3,7 @@ package com.ytdownloader.app
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -87,6 +88,52 @@ class BotGuardChallengeParserTest {
         assertEquals("bg", parsed.globalName)
         assertEquals("", parsed.interpreterJavascript)
         assertEquals("//youtube.com/s/player/bg.js", parsed.interpreterUrl)
+    }
+
+    @Test
+    fun sourceMappingCommentIsJavascriptNotUrl() {
+        val vm = """
+            //# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjogM30=
+            (function(){var p=221;})();
+        """.trimIndent()
+        val jspb = JSONArray()
+            .put("msg-id")
+            .put(JSONArray().put(vm))
+            .put(JSONObject.NULL)
+            .put("hash")
+            .put("PROGRAM_BYTES")
+            .put("enforcementV3")
+        val envelope = JSONArray()
+            .put(JSONObject.NULL)
+            .put(BotGuardChallengeParser.scramble(jspb.toString()))
+
+        val parsed = BotGuardChallengeParser.parse(envelope.toString())
+
+        assertEquals("PROGRAM_BYTES", parsed.program)
+        assertEquals("enforcementV3", parsed.globalName)
+        assertEquals("", parsed.interpreterUrl)
+        assertTrue(parsed.interpreterJavascript.contains("(function(){var p=221;})();"))
+        assertTrue(parsed.interpreterJavascript.startsWith("//# sourceMappingURL="))
+    }
+
+    @Test
+    fun interpreterUrlRequiresHostname() {
+        assertTrue(
+            BotGuardChallengeParser.isInterpreterUrl("//www.google.com/js/bg/test.js"),
+        )
+        assertTrue(
+            BotGuardChallengeParser.isInterpreterUrl("https://www.gstatic.com/bg.js"),
+        )
+        assertFalse(
+            BotGuardChallengeParser.isInterpreterUrl(
+                "//# sourceMappingURL=data:application/json;charset=utf-8;base64,e30=",
+            ),
+        )
+        assertFalse(
+            BotGuardChallengeParser.isInterpreterUrl(
+                "//# sourceMappingURL=x\n(function(){})();",
+            ),
+        )
     }
 
     @Test
