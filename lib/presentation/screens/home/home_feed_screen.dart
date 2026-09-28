@@ -16,6 +16,7 @@ import '../../../data/providers/browse_providers.dart';
 import '../../../data/providers/library_providers.dart';
 import '../../../data/providers/player_provider.dart';
 import '../../widgets/browse/browse_video_tile.dart';
+import '../../widgets/common/app_snackbar.dart';
 import 'home_screen.dart';
 
 /// Feed home tab.
@@ -125,6 +126,17 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
                             onTap: () => ref
                                 .read(playerControllerProvider.notifier)
                                 .play(e.video),
+                            onRemove: () async {
+                              await ref
+                                  .read(libraryActionsProvider)
+                                  .deleteHistory(e.video.id);
+                              if (context.mounted) {
+                                AppSnackbar.showSuccess(
+                                  context,
+                                  AppStrings.removedFromLibrary,
+                                );
+                              }
+                            },
                           ),
                         ),
                       )

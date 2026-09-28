@@ -97,6 +97,14 @@ class LibraryActions {
     _ref.invalidate(recommendedFeedProvider);
   }
 
+  /// Removes one video from watch history. Does not delete files.
+  Future<void> deleteHistory(String videoId) async {
+    await _store.deleteHistory(videoId);
+    _ref.invalidate(watchHistoryProvider);
+    _ref.invalidate(continueWatchingProvider);
+    _ref.invalidate(recommendedFeedProvider);
+  }
+
   /// Creates a playlist.
   Future<String> createPlaylist(String name) async {
     final String id = await _store.createPlaylist(name);
@@ -107,6 +115,12 @@ class LibraryActions {
   /// Adds [video] to [playlistId].
   Future<void> addToPlaylist(String playlistId, BrowseVideo video) async {
     await _store.addToPlaylist(playlistId, video);
+    _ref.invalidate(localPlaylistsProvider);
+  }
+
+  /// Removes one video from a playlist. Does not delete files.
+  Future<void> removeFromPlaylist(String playlistId, String videoId) async {
+    await _store.removeFromPlaylist(playlistId, videoId);
     _ref.invalidate(localPlaylistsProvider);
   }
 

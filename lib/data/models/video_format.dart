@@ -43,6 +43,40 @@ class VideoFormat {
   /// Audio bitrate in kilobits per second when known.
   final double? audioBitrate;
 
+  /// Pixel height parsed from [resolution], when known.
+  int? get height {
+    final String? raw = resolution;
+    if (raw == null || raw.isEmpty) {
+      return null;
+    }
+    return int.tryParse(RegExp(r'(\d+)').firstMatch(raw)?.group(1) ?? '');
+  }
+
+  /// yt-dlp `-f` selector for a watch-page download.
+  static VideoFormat downloadSelector({int? maxHeight, bool audioOnly = false}) {
+    if (audioOnly) {
+      return const VideoFormat(
+        formatId: 'ba/bestaudio',
+        extension: 'm4a',
+        displayLabel: AppStrings.downloadQualityAudio,
+        isAudioOnly: true,
+      );
+    }
+    if (maxHeight == null) {
+      return const VideoFormat(
+        formatId: 'bv*+ba/b',
+        extension: 'mp4',
+        displayLabel: AppStrings.downloadQualityBest,
+      );
+    }
+    return VideoFormat(
+      formatId: 'bv*[height<=$maxHeight]+ba/b[height<=$maxHeight]',
+      extension: 'mp4',
+      displayLabel: '$maxHeight${AppStrings.formatVideoSuffix}',
+      resolution: '$maxHeight${AppStrings.formatVideoSuffix}',
+    );
+  }
+
   /// Human-readable file size (e.g. `128 MB`) or [AppStrings.fileSizeUnknown].
   String get formattedFileSize {
     if (fileSize == null) {

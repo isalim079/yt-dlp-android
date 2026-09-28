@@ -185,6 +185,16 @@ class LibraryStore {
     await db.delete('watch_history');
   }
 
+  /// Deletes one watch-history row. Does not delete downloaded files.
+  Future<void> deleteHistory(String videoId) async {
+    final Database db = await _database;
+    await db.delete(
+      'watch_history',
+      where: 'video_id = ?',
+      whereArgs: <Object>[videoId],
+    );
+  }
+
   /// Creates a playlist and returns its id.
   Future<String> createPlaylist(String name) async {
     final Database db = await _database;

@@ -76,5 +76,11 @@ void main() {
       expect(copy.resolution, '720p');
       expect(original.resolution, '1080p');
     });
+
+    test('downloadSelector builds height-capped yt-dlp format', () {
+      final VideoFormat format = VideoFormat.downloadSelector(maxHeight: 1080);
+      expect(format.formatId, contains('height<=1080'));
+      expect(format.height, 1080);
+    });
   });
 }

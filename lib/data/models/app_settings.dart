@@ -227,6 +227,8 @@ enum DefaultQuality {
 
 enum PlaybackQualitySetting {
   auto,
+  p2160,
+  p1440,
   p1080,
   p720,
   p480,
@@ -235,6 +237,8 @@ enum PlaybackQualitySetting {
   /// Human readable label for picker rows.
   String get label => switch (this) {
     PlaybackQualitySetting.auto => 'Auto (best)',
+    PlaybackQualitySetting.p2160 => '2160p',
+    PlaybackQualitySetting.p1440 => '1440p',
     PlaybackQualitySetting.p1080 => '1080p',
     PlaybackQualitySetting.p720 => '720p',
     PlaybackQualitySetting.p480 => '480p',

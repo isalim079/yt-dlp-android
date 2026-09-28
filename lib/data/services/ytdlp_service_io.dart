@@ -5,6 +5,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../../core/constants/app_strings.dart';
 import '../../core/exceptions/ytdlp_exception.dart';
 import '../../core/utils/logger.dart';
@@ -16,6 +18,7 @@ import '../models/playlist_info.dart';
 import '../models/video_format.dart';
 import '../models/video_info.dart';
 import 'format_parser.dart';
+import 'playback_json_cache.dart';
 import 'playback_resolver.dart';
 import 'ytdlp_platform_channel.dart';
 
@@ -81,17 +84,30 @@ class YtdlpService {
     return args;
   }
 
-  static String extractorArgsFor(String playerClient) {
+  static String extractorArgsFor(String playerClient, {String? poToken}) {
     final String client =
         playerClient.trim().isEmpty ? 'android,web' : playerClient.trim();
-    return 'youtube:player_client=$client';
+    final String token = poToken?.trim() ?? '';
+    if (token.isEmpty) {
+      return 'youtube:player_client=$client';
+    }
+    return 'youtube:player_client=$client;po_token=$token';
   }
 
-  static String? _metadataJsonUrl;
-  static String? _metadataJsonBody;
-  static String? _metadataJsonClient;
+  static final PlaybackJsonCache jsonCache = PlaybackJsonCache();
   static final Map<String, PlaybackResolved> _playbackCache =
       <String, PlaybackResolved>{};
+
+  /// Test hook: intercepts `-J` so quality-switch tests can count extracts.
+  @visibleForTesting
+  static Future<String> Function(String url, String playerClient)? debugFetchJson;
+
+  /// Test hook: drops JSON and resolved-URL caches.
+  static void resetCachesForTest() {
+    jsonCache.clear();
+    _playbackCache.clear();
+    debugFetchJson = null;
+  }
 
   /// Fetches all available formats for a given URL.
   ///
@@ -149,29 +165,41 @@ class YtdlpService {
     PlaybackQuality quality = PlaybackQuality.auto,
     String playerClient = 'android,web',
     bool forceRefresh = false,
+    String? poToken,
   }) async {
     try {
       _validateUrl(url);
-      final String cacheKey = '$url|${quality.name}|$playerClient';
+      final String resolvedKey =
+          '$url|${quality.name}|$playerClient|${poToken ?? ''}';
       if (!forceRefresh) {
-        final PlaybackResolved? cached = _playbackCache[cacheKey];
+        final PlaybackResolved? cached = _playbackCache[resolvedKey];
         if (cached != null && !cached.isExpired) {
           return cached;
         }
       }
-      final String json = await _ensureSingleVideoJson(
+      String json = await _ensureSingleVideoJson(
         url,
         playerClient: playerClient,
         forceRefresh: forceRefresh,
+        poToken: poToken,
       );
-      final PlaybackResolved resolved = PlaybackResolver.fromJson(
+      PlaybackResolved resolved = PlaybackResolver.fromJson(
         json,
         quality: quality,
       );
+      if (!forceRefresh && resolved.isExpired) {
+        json = await _ensureSingleVideoJson(
+          url,
+          playerClient: playerClient,
+          forceRefresh: true,
+          poToken: poToken,
+        );
+        resolved = PlaybackResolver.fromJson(json, quality: quality);
+      }
       if (!resolved.isPlayable) {
         throw const YtdlpException(AppStrings.errorNoPlaybackStreams);
       }
-      _playbackCache[cacheKey] = resolved;
+      _playbackCache[resolvedKey] = resolved;
       return resolved;
     } on YtdlpException {
       rethrow;
@@ -364,25 +392,51 @@ class YtdlpService {
     return out?.toString() ?? '';
   }
 
-  /// Ensures a single `-J` JSON payload is available for [url] on this service.
+  /// Ensures a single `-J` JSON payload is available for [url] + [playerClient].
+  ///
+  /// Quality is not part of the cache key; callers re-parse the same body.
   Future<String> _ensureSingleVideoJson(
     String url, {
     String playerClient = 'android,web',
     bool forceRefresh = false,
+    String? poToken,
   }) async {
-    if (!forceRefresh &&
-        _metadataJsonUrl == url &&
-        _metadataJsonClient == playerClient &&
-        _metadataJsonBody != null) {
-      AppLogger.d('Reusing in-memory yt-dlp JSON for the current URL');
-      return _metadataJsonBody!;
+    final String cacheClient =
+        (poToken == null || poToken.isEmpty) ? playerClient : '$playerClient|pot';
+    if (!forceRefresh) {
+      final String? cached = jsonCache.read(url, cacheClient);
+      if (cached != null) {
+        AppLogger.d('Reusing in-memory yt-dlp JSON for $cacheClient');
+        return cached;
+      }
     }
+    jsonCache.missCount += 1;
+    final String body = await _fetchSingleVideoJson(
+      url,
+      playerClient: playerClient,
+      poToken: poToken,
+    );
+    jsonCache.put(url, cacheClient, body);
+    return body;
+  }
+
+  Future<String> _fetchSingleVideoJson(
+    String url, {
+    required String playerClient,
+    String? poToken,
+  }) async {
     _validateUrl(url);
+    final Future<String> Function(String url, String playerClient)? hook =
+        debugFetchJson;
+    if (hook != null) {
+      return hook(url, playerClient);
+    }
     late final String body;
     if (Platform.isAndroid) {
       body = await YtdlpPlatformChannel.fetchFormats(
         url,
         playerClient: playerClient,
+        poToken: poToken,
       ).timeout(const Duration(seconds: 90));
     } else {
       final _YtdlpResult result = await _runProcess(<String>[
@@ -390,7 +444,7 @@ class YtdlpService {
         '--no-playlist',
         '--no-warnings',
         '--extractor-args',
-        extractorArgsFor(playerClient),
+        extractorArgsFor(playerClient, poToken: poToken),
         url,
       ], timeout: const Duration(seconds: 90));
       if (!result.isSuccess) {
@@ -404,9 +458,6 @@ class YtdlpService {
     if (body.trim().isEmpty) {
       throw const YtdlpException(AppStrings.errorProcessFailed);
     }
-    _metadataJsonUrl = url;
-    _metadataJsonBody = body;
-    _metadataJsonClient = playerClient;
     return body;
   }
 

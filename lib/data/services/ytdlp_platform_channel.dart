@@ -29,10 +29,15 @@ class YtdlpPlatformChannel {
   static Future<String> fetchFormats(
     String url, {
     String playerClient = 'android,web',
+    String? poToken,
   }) async {
     final String? json = await _channel.invokeMethod<String>(
       'fetchFormats',
-      <String, dynamic>{'url': url, 'playerClient': playerClient},
+      <String, dynamic>{
+        'url': url,
+        'playerClient': playerClient,
+        if (poToken != null && poToken.isNotEmpty) 'poToken': poToken,
+      },
     );
     return json ?? '';
   }

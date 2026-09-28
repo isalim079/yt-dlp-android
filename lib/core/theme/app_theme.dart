@@ -91,8 +91,13 @@ abstract final class AppTheme {
   static ThemeData get dark {
     const ColorScheme scheme = ColorScheme.dark(
       primary: AppColors.darkPrimary,
+      onPrimary: AppColors.darkTextPrimary,
       secondary: AppColors.darkSecondary,
+      onSecondary: AppColors.darkTextPrimary,
+      onSecondaryContainer: AppColors.darkTextPrimary,
       surface: AppColors.darkSurface,
+      onSurface: AppColors.darkTextPrimary,
+      onSurfaceVariant: AppColors.darkTextPrimary,
       error: AppColors.darkError,
     );
 

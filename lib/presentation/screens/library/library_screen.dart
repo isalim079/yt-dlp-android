@@ -202,13 +202,23 @@ class _HistoryBody extends ConsumerWidget {
     final AsyncValue<List<WatchHistoryEntry>> history = ref.watch(
       watchHistoryProvider,
     );
+    final AppUiColors c = AppColors.of(context);
     return history.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (Object error, StackTrace stack) =>
-          const Center(child: Text(AppStrings.errorGeneric)),
+      error: (Object error, StackTrace stack) => Center(
+        child: Text(
+          AppStrings.errorGeneric,
+          style: TextStyle(color: c.textPrimary),
+        ),
+      ),
       data: (List<WatchHistoryEntry> rows) {
         if (rows.isEmpty) {
-          return const Center(child: Text(AppStrings.historyEmpty));
+          return Center(
+            child: Text(
+              AppStrings.historyEmpty,
+              style: TextStyle(color: c.textPrimary),
+            ),
+          );
         }
         return ListView.builder(
           itemCount: rows.length,
@@ -218,6 +228,17 @@ class _HistoryBody extends ConsumerWidget {
               video: e.video,
               onTap: () =>
                   ref.read(playerControllerProvider.notifier).play(e.video),
+              onRemove: () async {
+                await ref
+                    .read(libraryActionsProvider)
+                    .deleteHistory(e.video.id);
+                if (context.mounted) {
+                  AppSnackbar.showSuccess(
+                    context,
+                    AppStrings.removedFromLibrary,
+                  );
+                }
+              },
             );
           },
         );
@@ -234,30 +255,52 @@ class _PlaylistsBody extends ConsumerWidget {
     final AsyncValue<List<LocalPlaylist>> playlists = ref.watch(
       localPlaylistsProvider,
     );
+    final AppUiColors c = AppColors.of(context);
     return playlists.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (Object error, StackTrace stack) =>
-          const Center(child: Text(AppStrings.errorGeneric)),
+      error: (Object error, StackTrace stack) => Center(
+        child: Text(
+          AppStrings.errorGeneric,
+          style: TextStyle(color: c.textPrimary),
+        ),
+      ),
       data: (List<LocalPlaylist> items) {
         return ListView(
           children: <Widget>[
             ListTile(
-              leading: const Icon(Icons.playlist_add_rounded),
-              title: const Text(AppStrings.importPlaylist),
+              leading: Icon(Icons.playlist_add_rounded, color: c.textPrimary),
+              title: Text(
+                AppStrings.importPlaylist,
+                style: TextStyle(color: c.textPrimary),
+              ),
               onTap: () => _importPlaylist(context, ref),
             ),
             if (items.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(48),
-                child: Center(child: Text(AppStrings.playlistsEmpty)),
+              Padding(
+                padding: const EdgeInsets.all(48),
+                child: Center(
+                  child: Text(
+                    AppStrings.playlistsEmpty,
+                    style: TextStyle(color: c.textPrimary),
+                  ),
+                ),
               ),
             ...items.map((LocalPlaylist p) {
               return ListTile(
-                leading: const Icon(Icons.playlist_play_rounded),
-                title: Text(p.name),
-                subtitle: Text('${p.items.length}'),
+                leading: Icon(
+                  Icons.playlist_play_rounded,
+                  color: c.textPrimary,
+                ),
+                title: Text(p.name, style: TextStyle(color: c.textPrimary)),
+                subtitle: Text(
+                  '${p.items.length}',
+                  style: TextStyle(color: c.textSecondary),
+                ),
                 trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline_rounded),
+                  icon: Icon(
+                    Icons.delete_outline_rounded,
+                    color: c.textPrimary,
+                  ),
                   onPressed: () =>
                       ref.read(libraryActionsProvider).deletePlaylist(p.id),
                 ),
@@ -372,6 +415,17 @@ class _PlaylistDetail extends ConsumerWidget {
                   queue: current.items,
                   index: current.items.indexOf(v),
                 ),
+                onRemove: () async {
+                  await ref
+                      .read(libraryActionsProvider)
+                      .removeFromPlaylist(current.id, v.id);
+                  if (context.mounted) {
+                    AppSnackbar.showSuccess(
+                      context,
+                      AppStrings.removedFromLibrary,
+                    );
+                  }
+                },
               ),
             )
             .toList(),
@@ -388,24 +442,46 @@ class _ChannelsBody extends ConsumerWidget {
     final AsyncValue<List<FollowedChannel>> channels = ref.watch(
       followedChannelsProvider,
     );
+    final AppUiColors c = AppColors.of(context);
     return channels.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (Object error, StackTrace stack) =>
-          const Center(child: Text(AppStrings.errorGeneric)),
+      error: (Object error, StackTrace stack) => Center(
+        child: Text(
+          AppStrings.errorGeneric,
+          style: TextStyle(color: c.textPrimary),
+        ),
+      ),
       data: (List<FollowedChannel> items) {
         if (items.isEmpty) {
-          return const Center(child: Text(AppStrings.channelsEmpty));
+          return Center(
+            child: Text(
+              AppStrings.channelsEmpty,
+              style: TextStyle(color: c.textPrimary),
+            ),
+          );
         }
         return ListView(
           children: items
               .map(
                 (FollowedChannel ch) => ListTile(
-                  leading: const Icon(Icons.subscriptions_outlined),
-                  title: Text(ch.title),
-                  subtitle: Text(ch.url),
+                  leading: Icon(
+                    Icons.subscriptions_outlined,
+                    color: c.textPrimary,
+                  ),
+                  title: Text(
+                    ch.title,
+                    style: TextStyle(color: c.textPrimary),
+                  ),
+                  subtitle: Text(
+                    ch.url,
+                    style: TextStyle(color: c.textSecondary),
+                  ),
                   trailing: IconButton(
                     tooltip: AppStrings.unfollowChannel,
-                    icon: const Icon(Icons.remove_circle_outline),
+                    icon: Icon(
+                      Icons.remove_circle_outline,
+                      color: c.textPrimary,
+                    ),
                     onPressed: () =>
                         ref.read(libraryActionsProvider).unfollow(ch.id),
                   ),

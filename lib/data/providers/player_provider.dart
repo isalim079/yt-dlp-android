@@ -25,6 +25,9 @@ import '../providers/download_providers.dart';
 import '../providers/library_providers.dart';
 import '../providers/settings_providers.dart';
 import '../providers/ytdlp_providers.dart';
+import '../services/playback_hd_fallback.dart';
+import '../services/playback_po_token.dart';
+import '../services/playback_seek.dart';
 import '../services/ytdlp_platform_channel.dart';
 import '../services/ytdlp_service.dart';
 
@@ -131,6 +134,8 @@ class PlayerController extends Notifier<PlayerUiState> {
   PlaybackQuality _qualityFromSettings(AppSettings settings) {
     return switch (settings.playbackQuality) {
       PlaybackQualitySetting.auto => PlaybackQuality.auto,
+      PlaybackQualitySetting.p2160 => PlaybackQuality.p2160,
+      PlaybackQualitySetting.p1440 => PlaybackQuality.p1440,
       PlaybackQualitySetting.p1080 => PlaybackQuality.p1080,
       PlaybackQualitySetting.p720 => PlaybackQuality.p720,
       PlaybackQualitySetting.p480 => PlaybackQuality.p480,
@@ -159,16 +164,37 @@ class PlayerController extends Notifier<PlayerUiState> {
       queueIndex: index,
     );
     await _ensurePlayer();
-    await _openCurrent(forceRefresh: false);
+    if (Platform.isAndroid) {
+      unawaited(PlaybackPoTokenService.ensureMinter());
+    }
+    await _openCurrent(forceRefresh: false, preservePosition: false);
   }
 
-  /// Changes quality and re-resolves.
+  /// Seeks relative to the current position (double-tap skip).
+  Future<void> seekBy(Duration delta) async {
+    final Player? player = _player;
+    if (player == null) {
+      return;
+    }
+    final Duration target = playbackClampSeek(
+      player.state.position,
+      delta,
+      player.state.duration,
+    );
+    try {
+      await player.seek(target).timeout(const Duration(seconds: 3));
+    } on TimeoutException {
+      AppLogger.w('seekBy timed out');
+    }
+  }
+
+  /// Changes quality by re-parsing cached JSON; does not re-run yt-dlp.
   Future<void> setQuality(PlaybackQuality quality) async {
     if (state.video == null) {
       return;
     }
-    state = state.copyWith(quality: quality, loading: true, clearError: true);
-    await _openCurrent(forceRefresh: true);
+    state = state.copyWith(quality: quality, loading: false, clearError: true);
+    await _openCurrent(forceRefresh: false, preservePosition: true);
   }
 
   /// Expands the watch page.
@@ -225,8 +251,8 @@ class PlayerController extends Notifier<PlayerUiState> {
     await YtdlpPlatformChannel.enterPictureInPicture();
   }
 
-  /// Queues a download of the current video at best adaptive quality.
-  Future<void> downloadCurrent() async {
+  /// Queues a download of the current video at [format], or best adaptive.
+  Future<void> downloadCurrent({VideoFormat? format}) async {
     final BrowseVideo? video = state.video;
     if (video == null) {
       return;
@@ -242,14 +268,11 @@ class PlayerController extends Notifier<PlayerUiState> {
     if (!granted) {
       return;
     }
-    const VideoFormat format = VideoFormat(
-      formatId: 'bv*+ba/b',
-      extension: 'mp4',
-      displayLabel: 'Best available (auto)',
-    );
+    final VideoFormat selected =
+        format ?? VideoFormat.downloadSelector();
     await ref.read(downloadManagerProvider.notifier).addDownload(
       url: video.url,
-      format: format,
+      format: selected,
       outputPath: outputPath,
       title: video.title,
       thumbnailUrl: video.thumbnail,
@@ -264,7 +287,7 @@ class PlayerController extends Notifier<PlayerUiState> {
     _player = Player(
       configuration: const PlayerConfiguration(
         title: AppStrings.appName,
-        bufferSize: 32 * 1024 * 1024,
+        bufferSize: 64 * 1024 * 1024,
       ),
     );
     // Emulators' EGL/gpu vo path stays black (media-kit#1343). MediaCodec
@@ -304,42 +327,67 @@ class PlayerController extends Notifier<PlayerUiState> {
     _positionSub = _player!.stream.position.listen((Duration position) {
       _maybeWriteHistory(position);
     });
+    await _applyNetworkCacheProperties(_player!);
   }
 
-  Future<void> _openCurrent({required bool forceRefresh}) async {
+  Future<void> _applyNetworkCacheProperties(Player player) async {
+    final PlatformPlayer? platform = player.platform;
+    if (platform is! NativePlayer) {
+      return;
+    }
+    try {
+      await platform.setProperty('cache', 'yes');
+      await platform.setProperty('demuxer-readahead-secs', '15');
+      await platform.setProperty('force-seekable', 'yes');
+    } on Object catch (error) {
+      AppLogger.w('mpv cache properties failed: $error');
+    }
+  }
+
+  Future<void> _openCurrent({
+    required bool forceRefresh,
+    required bool preservePosition,
+  }) async {
     final BrowseVideo? video = state.video;
     if (video == null) {
       return;
     }
     final int gen = ++_generation;
     _opening = true;
+    final Duration? keepAt = preservePosition ? _player?.state.position : null;
     try {
       final AppSettings settings =
           ref.read(settingsProvider).valueOrNull ?? AppSettings.defaults;
       final YtdlpService ytdlp = ref.read(ytdlpServiceProvider);
-      PlaybackResolved resolved = await ytdlp.resolvePlayback(
-        video.url,
+      PlaybackResolved resolved = await resolvePlaybackWithHdFallback(
+        ytdlp: ytdlp,
+        url: video.url,
         quality: state.quality,
-        playerClient: settings.playerClient.ytDlpValue,
+        preferredClient: settings.playerClient.ytDlpValue,
         forceRefresh: forceRefresh,
-      ).timeout(const Duration(seconds: 90));
+        mintPoTokens: PlaybackPoTokenService.mint,
+      );
       if (gen != _generation) {
         return;
       }
-      // Drop "Resolving stream…" as soon as URLs exist so open/hangs
-      // cannot trap the overlay forever.
       state = state.copyWith(resolved: resolved, loading: false, clearError: true);
       await _waitForVideoTexture();
       await _openResolved(resolved, allowProgressiveFallback: true);
       if (gen != _generation) {
         return;
       }
-      final int resume = await ref
-          .read(libraryStoreProvider)
-          .positionFor(video.id);
-      if (resume > 3000) {
+      final int resumeMs;
+      if (keepAt != null && keepAt.inMilliseconds > 500) {
+        resumeMs = keepAt.inMilliseconds;
+      } else if (!preservePosition) {
+        resumeMs = await ref.read(libraryStoreProvider).positionFor(video.id);
+      } else {
+        resumeMs = 0;
+      }
+      final int minSeekMs = preservePosition ? 500 : 3000;
+      if (resumeMs > minSeekMs) {
         try {
-          await _player?.seek(Duration(milliseconds: resume)).timeout(
+          await _player?.seek(Duration(milliseconds: resumeMs)).timeout(
             const Duration(seconds: 3),
           );
         } on TimeoutException {
@@ -347,7 +395,7 @@ class PlayerController extends Notifier<PlayerUiState> {
         }
       }
       unawaited(
-        ref.read(libraryActionsProvider).recordWatch(video, resume),
+        ref.read(libraryActionsProvider).recordWatch(video, resumeMs),
       );
       if (Platform.isAndroid && settings.backgroundPlayback) {
         unawaited(YtdlpPlatformChannel.setPlaybackService(active: true));
@@ -358,13 +406,10 @@ class PlayerController extends Notifier<PlayerUiState> {
       if (gen != _generation) {
         return;
       }
-      final bool retried = await _retryWithFallbackClient(video, gen);
-      if (!retried && gen == _generation) {
-        state = state.copyWith(
-          loading: false,
-          error: _friendlyError(error),
-        );
-      }
+      state = state.copyWith(
+        loading: false,
+        error: _friendlyError(error),
+      );
     } finally {
       if (gen == _generation) {
         _opening = false;
@@ -381,16 +426,6 @@ class PlayerController extends Notifier<PlayerUiState> {
       return;
     }
     final Map<String, String> headers = resolved.headers;
-    Media(resolved.primaryUrl, httpHeaders: headers);
-    if (resolved.videoUrl != null) {
-      Media(resolved.videoUrl!, httpHeaders: headers);
-    }
-    if (resolved.audioUrl != null) {
-      Media(resolved.audioUrl!, httpHeaders: headers);
-    }
-    if (resolved.progressiveUrl != null) {
-      Media(resolved.progressiveUrl!, httpHeaders: headers);
-    }
     try {
       final bool emulator = await PlatformUtils.isAndroidEmulator;
       if (emulator &&
@@ -408,6 +443,7 @@ class PlayerController extends Notifier<PlayerUiState> {
         await _openMedia(
           player,
           Media(resolved.videoUrl!, httpHeaders: headers),
+          play: false,
         );
         if (resolved.hasSeparateAudio) {
           try {
@@ -417,6 +453,11 @@ class PlayerController extends Notifier<PlayerUiState> {
           } on TimeoutException {
             AppLogger.w('setAudioTrack timed out');
           }
+        }
+        try {
+          await player.play().timeout(const Duration(seconds: 8));
+        } on TimeoutException {
+          AppLogger.w('player.play after adaptive attach timed out');
         }
         _logPlaybackVisibility();
         return;
@@ -442,15 +483,21 @@ class PlayerController extends Notifier<PlayerUiState> {
     }
   }
 
-  Future<void> _openMedia(Player player, Media media) async {
+  Future<void> _openMedia(
+    Player player,
+    Media media, {
+    bool play = true,
+  }) async {
     try {
-      await player.open(media, play: true).timeout(const Duration(seconds: 12));
+      await player.open(media, play: play).timeout(const Duration(seconds: 12));
     } on TimeoutException {
       AppLogger.w('player.open timed out; requesting play anyway');
-      try {
-        await player.play();
-      } on Object catch (error) {
-        AppLogger.w('player.play after timeout failed: $error');
+      if (play) {
+        try {
+          await player.play();
+        } on Object catch (error) {
+          AppLogger.w('player.play after timeout failed: $error');
+        }
       }
     }
   }
@@ -494,28 +541,6 @@ class PlayerController extends Notifier<PlayerUiState> {
     );
   }
 
-  Future<bool> _retryWithFallbackClient(BrowseVideo video, int gen) async {
-    try {
-      final YtdlpService ytdlp = ref.read(ytdlpServiceProvider);
-      final PlaybackResolved resolved = await ytdlp.resolvePlayback(
-        video.url,
-        quality: state.quality,
-        playerClient: PlayerClientPreset.androidVr.ytDlpValue,
-        forceRefresh: true,
-      ).timeout(const Duration(seconds: 90));
-      if (gen != _generation) {
-        return true;
-      }
-      state = state.copyWith(resolved: resolved);
-      await _openResolved(resolved, allowProgressiveFallback: true);
-      state = state.copyWith(loading: false, clearError: true);
-      return true;
-    } on Object catch (error, stack) {
-      AppLogger.e('fallback client playback failed', error, stack);
-      return false;
-    }
-  }
-
   Future<void> _onPlayerError(String message) async {
     if (_opening) {
       return;
@@ -533,7 +558,7 @@ class PlayerController extends Notifier<PlayerUiState> {
     }
     AppLogger.w('player error, re-resolving: $message');
     state = state.copyWith(loading: true, error: AppStrings.errorPlaybackFailed);
-    await _openCurrent(forceRefresh: true);
+    await _openCurrent(forceRefresh: true, preservePosition: true);
   }
 
   void _maybeWriteHistory(Duration position) {

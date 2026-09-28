@@ -43,6 +43,8 @@ abstract final class PlaybackResolver {
     final bool isLive = root['is_live'] == true || root['live_status'] == 'is_live';
     final List<Map<String, dynamic>> formats = _formats(root);
 
+    final List<int> availableHeights = _availableHeights(formats);
+
     final String? hls = _pickHls(formats, root);
     if (isLive && hls != null) {
       return PlaybackResolved(
@@ -54,6 +56,7 @@ abstract final class PlaybackResolver {
         progressiveUrl: _pickProgressive(formats, quality)?.url,
         expiresAt: _expireOf(hls),
         formatId: 'hls',
+        availableHeights: availableHeights,
       );
     }
 
@@ -74,6 +77,7 @@ abstract final class PlaybackResolver {
         height: video.height,
         expiresAt: _earliestExpire(<String?>[video.url, audio.url]),
         formatId: video.formatId,
+        availableHeights: availableHeights,
       );
     }
 
@@ -88,6 +92,7 @@ abstract final class PlaybackResolver {
         height: progressive.height,
         expiresAt: _expireOf(progressive.url),
         formatId: progressive.formatId,
+        availableHeights: availableHeights,
       );
     }
 
@@ -100,6 +105,7 @@ abstract final class PlaybackResolver {
         hlsUrl: hls,
         expiresAt: _expireOf(hls),
         formatId: 'hls',
+        availableHeights: availableHeights,
       );
     }
 
@@ -252,6 +258,7 @@ abstract final class PlaybackResolver {
   }
 
   /// Prefers H.264 at or under 1080p for Auto so 4K AV1/HDR does not black-screen.
+  /// Explicit qualities pick the closest height first, then H.264 at that height.
   static _Picked? _bestVideo(
     List<_Picked> candidates,
     PlaybackQuality quality,
@@ -267,16 +274,35 @@ abstract final class PlaybackResolver {
       if (capped.isNotEmpty) {
         pool = capped;
       }
+      pool.sort((_Picked a, _Picked b) {
+        final int codec = _videoCodecScore(
+          b.vcodec,
+        ).compareTo(_videoCodecScore(a.vcodec));
+        if (codec != 0) {
+          return codec;
+        }
+        if (a.height != b.height) {
+          return b.height.compareTo(a.height);
+        }
+        final int extScore = _extScore(b.ext).compareTo(_extScore(a.ext));
+        if (extScore != 0) {
+          return extScore;
+        }
+        return b.tbr.compareTo(a.tbr);
+      });
+      return pool.first;
     }
+
+    pool = List<_Picked>.from(candidates);
     pool.sort((_Picked a, _Picked b) {
+      if (a.height != b.height) {
+        return b.height.compareTo(a.height);
+      }
       final int codec = _videoCodecScore(
         b.vcodec,
       ).compareTo(_videoCodecScore(a.vcodec));
       if (codec != 0) {
         return codec;
-      }
-      if (a.height != b.height) {
-        return b.height.compareTo(a.height);
       }
       final int extScore = _extScore(b.ext).compareTo(_extScore(a.ext));
       if (extScore != 0) {
@@ -285,6 +311,26 @@ abstract final class PlaybackResolver {
       return b.tbr.compareTo(a.tbr);
     });
     return pool.first;
+  }
+
+  /// Distinct HTTPS video heights only. SABR rows without a `url` are omitted.
+  static List<int> _availableHeights(List<Map<String, dynamic>> formats) {
+    final Set<int> heights = <int>{};
+    for (final Map<String, dynamic> row in formats) {
+      if (!_hasDirectUrl(row) || _isStoryboard(row)) {
+        continue;
+      }
+      final String vcodec = (row['vcodec']?.toString() ?? '').toLowerCase();
+      if (vcodec.isEmpty || vcodec == 'none') {
+        continue;
+      }
+      final int height = _readInt(row['height']) ?? 0;
+      if (height > 0) {
+        heights.add(height);
+      }
+    }
+    final List<int> out = heights.toList()..sort();
+    return out;
   }
 
   static String? _pickHls(

@@ -23,9 +23,11 @@ class MainActivity : FlutterActivity() {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val activeJobs = mutableMapOf<String, Job>()
     private var progressSink: EventChannel.EventSink? = null
+    private lateinit var botGuardMinter: BotGuardMinter
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        botGuardMinter = BotGuardMinter(this)
 
         EventChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -71,6 +73,7 @@ class MainActivity : FlutterActivity() {
                 "fetchFormats" -> {
                     val url = call.argument<String>("url") ?: ""
                     val playerClient = call.argument<String>("playerClient") ?: "android,web"
+                    val poToken = call.argument<String>("poToken")
                     scope.launch {
                         try {
                             val request = YoutubeDLRequest(url)
@@ -81,7 +84,10 @@ class MainActivity : FlutterActivity() {
                             // player clients used by the eventual download. Otherwise
                             // YouTube can return an ID here that is unavailable when
                             // `download` reruns yt-dlp with android,web clients.
-                            request.addOption("--extractor-args", youtubeExtractorArgs(playerClient))
+                            request.addOption(
+                                "--extractor-args",
+                                youtubeExtractorArgs(playerClient, poToken),
+                            )
                             val response = YoutubeDL.getInstance().execute(request)
                             withContext(Dispatchers.Main) {
                                 result.success(response.out)
@@ -370,6 +376,39 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
+                "ensurePoMinter" -> {
+                    scope.launch {
+                        try {
+                            botGuardMinter.ensure()
+                            withContext(Dispatchers.Main) {
+                                result.success("ok")
+                            }
+                        } catch (e: Exception) {
+                            Log.e("YTDownloader", "BotGuard ensure failed", e)
+                            withContext(Dispatchers.Main) {
+                                result.error("POT_ERROR", e.message, null)
+                            }
+                        }
+                    }
+                }
+
+                "mintPoTokens" -> {
+                    val videoId = call.argument<String>("videoId") ?: ""
+                    scope.launch {
+                        try {
+                            val tokens = botGuardMinter.mint(videoId)
+                            withContext(Dispatchers.Main) {
+                                result.success(tokens)
+                            }
+                        } catch (e: Exception) {
+                            Log.e("YTDownloader", "BotGuard mint failed", e)
+                            withContext(Dispatchers.Main) {
+                                result.error("POT_ERROR", e.message, null)
+                            }
+                        }
+                    }
+                }
+
                 else -> result.notImplemented()
             }
         }
@@ -456,8 +495,10 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun youtubeExtractorArgs(playerClient: String): String {
+    private fun youtubeExtractorArgs(playerClient: String, poToken: String? = null): String {
         val client = playerClient.ifBlank { "android,web" }
-        return "youtube:player_client=$client"
+        val base = "youtube:player_client=$client"
+        val token = poToken?.trim().orEmpty()
+        return if (token.isEmpty()) base else "$base;po_token=$token"
     }
 }

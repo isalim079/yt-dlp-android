@@ -414,6 +414,11 @@ abstract final class AppStrings {
   static const String playAll = 'Play all';
   static const String clearWatchHistory = 'Clear watch history';
   static const String watchHistoryCleared = 'Watch history cleared';
+  static const String removeFromLibrary = 'Remove';
+  static const String removedFromLibrary = 'Removed from library';
+  static const String downloadQualityTitle = 'Download quality';
+  static const String downloadQualityBest = 'Best available';
+  static const String downloadQualityAudio = 'Audio only';
 
   // Settings — playback / survival
   static const String sectionPlayback = 'PLAYBACK';

@@ -12,10 +12,13 @@ import '../../core/theme/app_ui_colors.dart';
 import '../../core/utils/permission_handler_util.dart';
 import '../../data/models/browse_video.dart';
 import '../../data/models/playback_resolved.dart';
+import '../../data/models/video_format.dart';
+import '../../data/models/app_settings.dart';
 import '../../data/providers/browse_providers.dart';
 import '../../data/providers/library_providers.dart';
 import '../../data/providers/player_provider.dart';
 import '../../data/providers/settings_providers.dart';
+import '../../data/providers/ytdlp_providers.dart';
 import '../../data/local/library_store.dart';
 import '../widgets/browse/browse_video_tile.dart';
 import '../widgets/common/app_snackbar.dart';
@@ -52,11 +55,31 @@ class WatchPage extends ConsumerWidget {
                     color: Colors.black,
                     child: controller == null
                         ? const Center(child: CircularProgressIndicator())
-                        : Video(
-                            key: ValueKey<int>(surfaceEpoch),
-                            controller: controller,
-                            controls: AdaptiveVideoControls,
-                            wakelock: true,
+                        : MaterialVideoControlsTheme(
+                            normal: const MaterialVideoControlsThemeData(
+                              seekOnDoubleTap: true,
+                              seekOnDoubleTapEnabledWhileControlsVisible:
+                                  true,
+                              seekOnDoubleTapBackwardDuration:
+                                  Duration(seconds: 10),
+                              seekOnDoubleTapForwardDuration:
+                                  Duration(seconds: 10),
+                            ),
+                            fullscreen: const MaterialVideoControlsThemeData(
+                              seekOnDoubleTap: true,
+                              seekOnDoubleTapEnabledWhileControlsVisible:
+                                  true,
+                              seekOnDoubleTapBackwardDuration:
+                                  Duration(seconds: 10),
+                              seekOnDoubleTapForwardDuration:
+                                  Duration(seconds: 10),
+                            ),
+                            child: Video(
+                              key: ValueKey<int>(surfaceEpoch),
+                              controller: controller,
+                              controls: MaterialVideoControls,
+                              wakelock: true,
+                            ),
                           ),
                   ),
                   if (playerState.loading)
@@ -129,30 +152,12 @@ class WatchPage extends ConsumerWidget {
                         _ActionChip(
                           icon: Icons.download_rounded,
                           label: AppStrings.playerDownload,
-                          onTap: () async {
-                            final bool allowed =
-                                await PermissionHandlerUtil.ensureStoragePermission(
-                                  context,
-                                  outputPath: ref.read(outputPathProvider),
-                                );
-                            if (!allowed) {
-                              return;
-                            }
-                            await ref
-                                .read(playerControllerProvider.notifier)
-                                .downloadCurrent();
-                            if (context.mounted) {
-                              AppSnackbar.showSuccess(
-                                context,
-                                AppStrings.downloadStarted,
-                              );
-                            }
-                          },
+                          onTap: () => _onDownloadTap(context, ref),
                         ),
                         const SizedBox(width: AppDimensions.spaceSm),
                         _ActionChip(
                           icon: Icons.high_quality_outlined,
-                          label: playerState.quality.label,
+                          label: _playingQualityLabel(playerState),
                           onTap: () => _showQualitySheet(context, ref),
                         ),
                         const SizedBox(width: AppDimensions.spaceSm),
@@ -216,6 +221,131 @@ class WatchPage extends ConsumerWidget {
     );
   }
 
+  String _playingQualityLabel(PlayerUiState state) {
+    final int? height = state.resolved?.height;
+    if (height != null && height > 0) {
+      return '$height${AppStrings.formatVideoSuffix}';
+    }
+    return state.quality.label;
+  }
+
+  Future<void> _onDownloadTap(BuildContext context, WidgetRef ref) async {
+    final bool allowed = await PermissionHandlerUtil.ensureStoragePermission(
+      context,
+      outputPath: ref.read(outputPathProvider),
+    );
+    if (!allowed || !context.mounted) {
+      return;
+    }
+    await _showDownloadQualitySheet(context, ref);
+  }
+
+  Future<void> _showDownloadQualitySheet(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final BrowseVideo? video = ref.read(playerControllerProvider).video;
+    if (video == null) {
+      return;
+    }
+    final String client =
+        ref.read(settingsProvider).valueOrNull?.playerClient.ytDlpValue ??
+        PlayerClientPreset.androidWeb.ytDlpValue;
+    final Future<List<VideoFormat>> pending = ref
+        .read(ytdlpServiceProvider)
+        .fetchFormats(video.url, playerClient: client);
+    final VideoFormat? chosen = await showModalBottomSheet<VideoFormat>(
+      context: context,
+      builder: (BuildContext ctx) {
+        return FutureBuilder<List<VideoFormat>>(
+          future: pending,
+          builder: (
+            BuildContext context,
+            AsyncSnapshot<List<VideoFormat>> snap,
+          ) {
+            if (snap.connectionState != ConnectionState.done) {
+              return const SafeArea(
+                child: Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              );
+            }
+            if (snap.hasError || snap.data == null) {
+              return SafeArea(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    const ListTile(title: Text(AppStrings.downloadQualityTitle)),
+                    ListTile(
+                      title: const Text(AppStrings.downloadQualityBest),
+                      onTap: () => Navigator.pop(
+                        ctx,
+                        VideoFormat.downloadSelector(),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+            final List<VideoFormat> formats = snap.data!;
+            final bool hasAudio = formats.any(
+              (VideoFormat f) => f.isAudioOnly,
+            );
+            return SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  const ListTile(title: Text(AppStrings.downloadQualityTitle)),
+                  ListTile(
+                    title: const Text(AppStrings.downloadQualityBest),
+                    onTap: () => Navigator.pop(
+                      ctx,
+                      VideoFormat.downloadSelector(),
+                    ),
+                  ),
+                  ...<int>[2160, 1440, 1080, 720, 480, 360]
+                      .where(
+                        (int height) => formats.any((VideoFormat f) {
+                          final int? h = f.height;
+                          return h != null && h >= height;
+                        }),
+                      )
+                      .map(
+                        (int height) => ListTile(
+                          title: Text('$height${AppStrings.formatVideoSuffix}'),
+                          onTap: () => Navigator.pop(
+                            ctx,
+                            VideoFormat.downloadSelector(maxHeight: height),
+                          ),
+                        ),
+                      ),
+                  if (hasAudio)
+                    ListTile(
+                      title: const Text(AppStrings.downloadQualityAudio),
+                      onTap: () => Navigator.pop(
+                        ctx,
+                        VideoFormat.downloadSelector(audioOnly: true),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+    if (chosen == null) {
+      return;
+    }
+    await ref.read(playerControllerProvider.notifier).downloadCurrent(
+      format: chosen,
+    );
+    if (context.mounted) {
+      AppSnackbar.showSuccess(context, AppStrings.downloadStarted);
+    }
+  }
+
   void _showSpeedSheet(BuildContext context, WidgetRef ref) {
     const List<double> rates = <double>[0.5, 0.75, 1, 1.25, 1.5, 2];
     showModalBottomSheet<void>(
@@ -246,6 +376,14 @@ class WatchPage extends ConsumerWidget {
   }
 
   void _showQualitySheet(BuildContext context, WidgetRef ref) {
+    final PlaybackResolved? resolved =
+        ref.read(playerControllerProvider).resolved;
+    final List<PlaybackQuality> options = PlaybackQuality.values
+        .where(
+          (PlaybackQuality q) =>
+              resolved == null || resolved.offersQuality(q),
+        )
+        .toList();
     showModalBottomSheet<void>(
       context: context,
       builder: (BuildContext ctx) {
@@ -253,8 +391,8 @@ class WatchPage extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              ListTile(title: Text(AppStrings.playerQuality)),
-              ...PlaybackQuality.values.map((PlaybackQuality q) {
+              const ListTile(title: Text(AppStrings.playerQuality)),
+              ...options.map((PlaybackQuality q) {
                 return ListTile(
                   title: Text(q.label),
                   onTap: () {

@@ -8,6 +8,7 @@ import '../models/playback_resolved.dart';
 import '../models/playlist_info.dart';
 import '../models/video_format.dart';
 import '../models/video_info.dart';
+import 'playback_json_cache.dart';
 
 /// No-op [YtdlpService] for unsupported platforms.
 class YtdlpService {
@@ -16,6 +17,29 @@ class YtdlpService {
 
   /// Ignored on web.
   final String binaryPath;
+
+  /// Shared with the IO implementation so tests compile on every target.
+  static final PlaybackJsonCache jsonCache = PlaybackJsonCache();
+
+  /// Test hook; unused on web.
+  static Future<String> Function(String url, String playerClient)? debugFetchJson;
+
+  /// Test hook: drops stub caches.
+  static void resetCachesForTest() {
+    jsonCache.clear();
+    debugFetchJson = null;
+  }
+
+  /// Mirrors the IO extractor-args builder so tests compile on every target.
+  static String extractorArgsFor(String playerClient, {String? poToken}) {
+    final String client =
+        playerClient.trim().isEmpty ? 'android,web' : playerClient.trim();
+    final String token = poToken?.trim() ?? '';
+    if (token.isEmpty) {
+      return 'youtube:player_client=$client';
+    }
+    return 'youtube:player_client=$client;po_token=$token';
+  }
 
   /// Stubbed download args builder for non-IO platforms.
   List<String> buildDownloadArgs({
@@ -54,6 +78,7 @@ class YtdlpService {
     PlaybackQuality quality = PlaybackQuality.auto,
     String playerClient = 'android,web',
     bool forceRefresh = false,
+    String? poToken,
   }) async {
     throw const YtdlpException(AppStrings.errorUnknown);
   }

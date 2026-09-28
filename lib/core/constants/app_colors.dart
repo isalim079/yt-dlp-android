@@ -34,7 +34,7 @@ abstract final class AppColors {
   static const Color darkSurface = Color(0xFF1B1B1F);
   static const Color darkSurfaceAlt = Color(0xFF24242A);
   static const Color darkBorder = Color(0xFF2E2E36);
-  static const Color darkTextPrimary = Color(0xFFF1F1F4);
+  static const Color darkTextPrimary = Color(0xFFFFFFFF);
   static const Color darkTextSecondary = Color(0xFFA1A1AA);
   static const Color darkTextHint = Color(0xFF71717A);
   static const Color darkPrimary = Color(0xFFE53935);

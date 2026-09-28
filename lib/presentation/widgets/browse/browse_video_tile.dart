@@ -18,6 +18,7 @@ class BrowseVideoTile extends StatelessWidget {
     required this.video,
     required this.onTap,
     this.compact = false,
+    this.onRemove,
   });
 
   /// Item to display.
@@ -29,10 +30,13 @@ class BrowseVideoTile extends StatelessWidget {
   /// Horizontal compact card for Continue watching.
   final bool compact;
 
+  /// When set, shows a remove control. Does not delete files.
+  final VoidCallback? onRemove;
+
   @override
   Widget build(BuildContext context) {
     if (compact) {
-      return _CompactCard(video: video, onTap: onTap);
+      return _CompactCard(video: video, onTap: onTap, onRemove: onRemove);
     }
     final AppUiColors c = AppColors.of(context);
     final TextTheme text = Theme.of(context).textTheme;
@@ -71,6 +75,23 @@ class BrowseVideoTile extends StatelessWidget {
                 ],
               ),
             ),
+            if (onRemove != null)
+              PopupMenuButton<String>(
+                icon: Icon(Icons.more_vert, color: c.textPrimary),
+                tooltip: AppStrings.removeFromLibrary,
+                onSelected: (String value) {
+                  if (value == 'remove') {
+                    onRemove!();
+                  }
+                },
+                itemBuilder: (BuildContext context) =>
+                    const <PopupMenuEntry<String>>[
+                      PopupMenuItem<String>(
+                        value: 'remove',
+                        child: Text(AppStrings.removeFromLibrary),
+                      ),
+                    ],
+              ),
           ],
         ),
       ),
@@ -79,43 +100,77 @@ class BrowseVideoTile extends StatelessWidget {
 }
 
 class _CompactCard extends StatelessWidget {
-  const _CompactCard({required this.video, required this.onTap});
+  const _CompactCard({
+    required this.video,
+    required this.onTap,
+    this.onRemove,
+  });
 
   final BrowseVideo video;
   final VoidCallback onTap;
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
     final AppUiColors c = AppColors.of(context);
     return SizedBox(
       width: 180,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppDimensions.radiusMd),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(AppDimensions.radiusMd),
-              child: _Thumb(
-                url: video.thumbnail,
-                duration: video.formattedDuration,
-                width: 180,
-                height: 100,
+      child: Stack(
+        children: <Widget>[
+          InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(AppDimensions.radiusMd),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(AppDimensions.radiusMd),
+                  child: _Thumb(
+                    url: video.thumbnail,
+                    duration: video.formattedDuration,
+                    width: 180,
+                    height: 100,
+                  ),
+                ),
+                const SizedBox(height: AppDimensions.spaceXs),
+                Text(
+                  video.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: c.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (onRemove != null)
+            Positioned(
+              top: 2,
+              right: 2,
+              child: Material(
+                color: Colors.black.withValues(alpha: 0.65),
+                shape: const CircleBorder(),
+                child: InkWell(
+                  key: const Key('continueWatchingRemove'),
+                  customBorder: const CircleBorder(),
+                  onTap: onRemove,
+                  child: const Tooltip(
+                    message: AppStrings.removeFromLibrary,
+                    child: Padding(
+                      padding: EdgeInsets.all(4),
+                      child: Icon(
+                        Icons.close_rounded,
+                        size: AppDimensions.iconSm,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
-            const SizedBox(height: AppDimensions.spaceXs),
-            Text(
-              video.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: c.textPrimary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }
