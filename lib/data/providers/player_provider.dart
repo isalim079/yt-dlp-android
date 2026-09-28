@@ -13,6 +13,7 @@ import '../../core/constants/app_strings.dart';
 import '../../core/exceptions/ytdlp_exception.dart';
 import '../../core/utils/logger.dart';
 import '../../core/utils/platform_utils.dart';
+import '../../core/utils/permission_handler_util.dart';
 import '../../core/utils/youtube_urls.dart';
 import '../local/library_store.dart';
 import '../models/app_settings.dart';
@@ -231,6 +232,16 @@ class PlayerController extends Notifier<PlayerUiState> {
       return;
     }
     final String outputPath = ref.read(outputPathProvider);
+    final bool granted =
+        await PermissionHandlerUtil.hasStoragePermission(
+          outputPath: outputPath,
+        ) ||
+        await PermissionHandlerUtil.requestStoragePermission(
+          outputPath: outputPath,
+        );
+    if (!granted) {
+      return;
+    }
     const VideoFormat format = VideoFormat(
       formatId: 'bv*+ba/b',
       extension: 'mp4',
@@ -256,15 +267,32 @@ class PlayerController extends Notifier<PlayerUiState> {
         bufferSize: 32 * 1024 * 1024,
       ),
     );
-    _videoController = VideoController(
-      _player!,
-      configuration: VideoControllerConfiguration(
-        enableHardwareAcceleration: !emulator,
-        hwdec: emulator ? 'no' : 'auto-safe',
-        androidAttachSurfaceAfterVideoParameters: true,
-      ),
+    // Emulators' EGL/gpu vo path stays black (media-kit#1343). MediaCodec
+    // embed draws into the Surface instead. Keep gpu/auto-safe on devices.
+    final VideoControllerConfiguration videoConfig = emulator
+        ? const VideoControllerConfiguration(
+            vo: 'mediacodec_embed',
+            hwdec: 'mediacodec',
+            enableHardwareAcceleration: true,
+          )
+        : const VideoControllerConfiguration(
+            hwdec: 'auto-safe',
+            enableHardwareAcceleration: true,
+          );
+    AppLogger.i(
+      emulator
+          ? 'player surface: emulator mediacodec_embed'
+          : 'player surface: device gpu/auto-safe',
     );
+    _videoController = VideoController(_player!, configuration: videoConfig);
     state = state.copyWith(surfaceEpoch: state.surfaceEpoch + 1);
+    try {
+      await _videoController!.platform.future.timeout(
+        const Duration(seconds: 8),
+      );
+    } on TimeoutException {
+      AppLogger.w('VideoController native init timed out');
+    }
     _errorSub = _player!.stream.error.listen((String message) {
       unawaited(_onPlayerError(message));
     });
@@ -294,11 +322,14 @@ class PlayerController extends Notifier<PlayerUiState> {
         quality: state.quality,
         playerClient: settings.playerClient.ytDlpValue,
         forceRefresh: forceRefresh,
-      );
+      ).timeout(const Duration(seconds: 90));
       if (gen != _generation) {
         return;
       }
-      state = state.copyWith(resolved: resolved);
+      // Drop "Resolving stream…" as soon as URLs exist so open/hangs
+      // cannot trap the overlay forever.
+      state = state.copyWith(resolved: resolved, loading: false, clearError: true);
+      await _waitForVideoTexture();
       await _openResolved(resolved, allowProgressiveFallback: true);
       if (gen != _generation) {
         return;
@@ -307,7 +338,13 @@ class PlayerController extends Notifier<PlayerUiState> {
           .read(libraryStoreProvider)
           .positionFor(video.id);
       if (resume > 3000) {
-        await _player?.seek(Duration(milliseconds: resume));
+        try {
+          await _player?.seek(Duration(milliseconds: resume)).timeout(
+            const Duration(seconds: 3),
+          );
+        } on TimeoutException {
+          AppLogger.w('resume seek timed out');
+        }
       }
       unawaited(
         ref.read(libraryActionsProvider).recordWatch(video, resume),
@@ -359,40 +396,102 @@ class PlayerController extends Notifier<PlayerUiState> {
       if (emulator &&
           resolved.progressiveUrl != null &&
           resolved.progressiveUrl!.isNotEmpty) {
-        await player.open(
+        await _openMedia(
+          player,
           Media(resolved.progressiveUrl!, httpHeaders: headers),
-          play: true,
         );
+        _logPlaybackVisibility();
         return;
       }
       if (resolved.mode == PlaybackMode.adaptive &&
           resolved.videoUrl != null) {
-        await player.open(
+        await _openMedia(
+          player,
           Media(resolved.videoUrl!, httpHeaders: headers),
-          play: true,
         );
         if (resolved.hasSeparateAudio) {
-          await player.setAudioTrack(AudioTrack.uri(resolved.audioUrl!));
+          try {
+            await player.setAudioTrack(AudioTrack.uri(resolved.audioUrl!)).timeout(
+              const Duration(seconds: 5),
+            );
+          } on TimeoutException {
+            AppLogger.w('setAudioTrack timed out');
+          }
         }
+        _logPlaybackVisibility();
         return;
       }
-      await player.open(
+      await _openMedia(
+        player,
         Media(resolved.primaryUrl, httpHeaders: headers),
-        play: true,
       );
+      _logPlaybackVisibility();
     } on Object catch (error, stack) {
       AppLogger.w('primary open failed: $error\n$stack');
       if (allowProgressiveFallback &&
           resolved.progressiveUrl != null &&
           resolved.progressiveUrl != resolved.primaryUrl) {
-        await player.open(
+        await _openMedia(
+          player,
           Media(resolved.progressiveUrl!, httpHeaders: headers),
-          play: true,
         );
+        _logPlaybackVisibility();
         return;
       }
       rethrow;
     }
+  }
+
+  Future<void> _openMedia(Player player, Media media) async {
+    try {
+      await player.open(media, play: true).timeout(const Duration(seconds: 12));
+    } on TimeoutException {
+      AppLogger.w('player.open timed out; requesting play anyway');
+      try {
+        await player.play();
+      } on Object catch (error) {
+        AppLogger.w('player.play after timeout failed: $error');
+      }
+    }
+  }
+
+  Future<void> _waitForVideoTexture() async {
+    final VideoController? controller = _videoController;
+    if (controller == null) {
+      return;
+    }
+    if (controller.id.value != null) {
+      return;
+    }
+    final Completer<void> ready = Completer<void>();
+    void listener() {
+      if (controller.id.value != null && !ready.isCompleted) {
+        ready.complete();
+      }
+    }
+
+    controller.id.addListener(listener);
+    try {
+      await ready.future.timeout(const Duration(seconds: 4));
+    } on TimeoutException {
+      AppLogger.w('video texture id not ready; opening anyway');
+    } finally {
+      controller.id.removeListener(listener);
+    }
+  }
+
+  void _logPlaybackVisibility() {
+    final Player? player = _player;
+    if (player == null) {
+      return;
+    }
+    final VideoParams video = player.state.videoParams;
+    AppLogger.i(
+      'playback visibility: playing=${player.state.playing} '
+      'buffering=${player.state.buffering} '
+      'width=${video.w} height=${video.h} '
+      'duration=${player.state.duration.inMilliseconds}ms',
+    );
   }
 
   Future<bool> _retryWithFallbackClient(BrowseVideo video, int gen) async {
@@ -403,7 +502,7 @@ class PlayerController extends Notifier<PlayerUiState> {
         quality: state.quality,
         playerClient: PlayerClientPreset.androidVr.ytDlpValue,
         forceRefresh: true,
-      );
+      ).timeout(const Duration(seconds: 90));
       if (gen != _generation) {
         return true;
       }
@@ -460,6 +559,11 @@ class PlayerController extends Notifier<PlayerUiState> {
     final String lower = error.toString().toLowerCase();
     if (lower.contains('403') || lower.contains('forbidden')) {
       return AppStrings.errorForbidden;
+    }
+    if (error is TimeoutException ||
+        lower.contains('timeout') ||
+        lower.contains('timed out')) {
+      return AppStrings.errorTimeout;
     }
     return AppStrings.errorExtractionBroken;
   }

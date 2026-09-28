@@ -44,6 +44,11 @@ abstract final class AppStrings {
   static const String navLibrary = 'Library';
   static const String navGoHome = 'Go to Home';
 
+  static const String exitAppTitle = 'Close the app?';
+  static const String exitAppBody =
+      'Are you sure you want to close the app? You can return any time.';
+  static const String exitAppConfirm = 'Close app';
+
   // Buttons
   static const String buttonPasteUrl = 'Paste URL';
   static const String buttonStartDownload = 'Start download';
@@ -369,11 +374,16 @@ abstract final class AppStrings {
   // Home feed
   static const String continueWatching = 'Continue watching';
   static const String trendingNow = 'Popular';
+  static const String recommendedForYou = 'Recommended';
   static const String fromYourChannels = 'From channels you follow';
   static const String pasteUrlTitle = 'Paste URL';
   static const String pasteUrlSubtitle = 'Play or download a YouTube link';
   static const String homeFeedEmpty =
       'Follow channels or search to fill your home feed.';
+  static const String homeEmptyFeedTitle = 'Search to get started';
+  static const String homeEmptyFeedSubtitle =
+      'Home fills with recommendations after you search or watch a video.';
+  static const String homeEmptyFeedAction = 'Search';
   static const String pullToRefresh = 'Pull to refresh';
 
   // Search

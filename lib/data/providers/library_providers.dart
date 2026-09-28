@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../local/library_store.dart';
 import '../models/browse_video.dart';
+import '../services/browse_service.dart';
+import 'ytdlp_providers.dart';
 
 /// Section shown inside the Library tab.
 enum LibrarySection { history, playlists, channels, downloads }
@@ -50,6 +52,26 @@ final FutureProvider<List<String>> searchHistoryProvider =
       return ref.watch(libraryStoreProvider).recentSearches();
     });
 
+/// Home recommendations from local search + watch history.
+///
+/// Empty until the user has searched or watched; then `ytsearch` on those seeds.
+final FutureProvider<List<BrowseVideo>> recommendedFeedProvider =
+    FutureProvider<List<BrowseVideo>>((Ref ref) async {
+      final List<String> searches = await ref.watch(
+        searchHistoryProvider.future,
+      );
+      final List<WatchHistoryEntry> history = await ref.watch(
+        watchHistoryProvider.future,
+      );
+      if (searches.isEmpty && history.isEmpty) {
+        return const <BrowseVideo>[];
+      }
+      return BrowseService(ytdlp: ref.watch(ytdlpServiceProvider)).recommend(
+        searchQueries: searches,
+        watched: history.map((WatchHistoryEntry entry) => entry.video).toList(),
+      );
+    });
+
 /// Convenience mutations that invalidate lists.
 class LibraryActions {
   /// Creates actions bound to [ref].
@@ -64,6 +86,7 @@ class LibraryActions {
     await _store.upsertHistory(video: video, lastPositionMs: positionMs);
     _ref.invalidate(watchHistoryProvider);
     _ref.invalidate(continueWatchingProvider);
+    _ref.invalidate(recommendedFeedProvider);
   }
 
   /// Clears history.
@@ -71,6 +94,7 @@ class LibraryActions {
     await _store.clearHistory();
     _ref.invalidate(watchHistoryProvider);
     _ref.invalidate(continueWatchingProvider);
+    _ref.invalidate(recommendedFeedProvider);
   }
 
   /// Creates a playlist.
@@ -108,12 +132,14 @@ class LibraryActions {
   Future<void> saveSearch(String query) async {
     await _store.addSearch(query);
     _ref.invalidate(searchHistoryProvider);
+    _ref.invalidate(recommendedFeedProvider);
   }
 
   /// Removes one saved search keyword.
   Future<void> deleteSearch(String query) async {
     await _store.deleteSearch(query);
     _ref.invalidate(searchHistoryProvider);
+    _ref.invalidate(recommendedFeedProvider);
   }
 }
 

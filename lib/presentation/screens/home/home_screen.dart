@@ -10,7 +10,6 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimensions.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/app_ui_colors.dart';
-import '../../../core/utils/logger.dart';
 import '../../../core/utils/permission_handler_util.dart';
 import '../../../core/utils/share_intent_handler.dart';
 import '../../../data/models/playlist_info.dart';
@@ -46,7 +45,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     super.initState();
     _urlController = TextEditingController(text: ref.read(urlInputProvider));
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await _requestPermissionsOnStartup();
       await ref.read(storagePermissionCheckerProvider.future);
       ShareIntentHandler.initialize(ref);
       await _checkClipboardForUrl();
@@ -672,16 +670,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ],
       ),
     );
-  }
-
-  Future<void> _requestPermissionsOnStartup() async {
-    final bool granted = await PermissionHandlerUtil.requestStoragePermission();
-    if (!granted && mounted) {
-      AppLogger.w('Storage permission not granted on startup');
-    } else {
-      ref.read(storagePermissionProvider.notifier).state = true;
-      AppLogger.i('Storage permission granted');
-    }
   }
 }
 

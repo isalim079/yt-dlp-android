@@ -383,7 +383,7 @@ class YtdlpService {
       body = await YtdlpPlatformChannel.fetchFormats(
         url,
         playerClient: playerClient,
-      );
+      ).timeout(const Duration(seconds: 90));
     } else {
       final _YtdlpResult result = await _runProcess(<String>[
         '-J',
@@ -435,6 +435,10 @@ class YtdlpService {
         AppStrings.errorExtractionBroken,
         originalError: error,
       );
+    }
+
+    if (error is TimeoutException || lower.contains('timeout')) {
+      return YtdlpException(AppStrings.errorTimeout, originalError: error);
     }
 
     return YtdlpException(AppStrings.errorUnknown, originalError: error);

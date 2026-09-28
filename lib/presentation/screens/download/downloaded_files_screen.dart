@@ -99,6 +99,26 @@ class _DownloadedFilesScreenState extends ConsumerState<DownloadedFilesScreen> {
     if (!await dir.exists()) {
       return <File>[];
     }
+    try {
+      return await _scanDirectory(dir);
+    } on FileSystemException {
+      if (!PermissionHandlerUtil.isPublicStoragePath(outputPath)) {
+        return <File>[];
+      }
+      final bool granted =
+          await PermissionHandlerUtil.requestMediaReadPermission();
+      if (!granted) {
+        return <File>[];
+      }
+      try {
+        return await _scanDirectory(dir);
+      } on FileSystemException {
+        return <File>[];
+      }
+    }
+  }
+
+  Future<List<File>> _scanDirectory(Directory dir) async {
     final List<File> files = <File>[];
     await for (final FileSystemEntity entity in dir.list()) {
       if (entity is! File) {
@@ -189,7 +209,10 @@ class _DownloadedFilesScreenState extends ConsumerState<DownloadedFilesScreen> {
     }
 
     final bool hasPermission =
-        await PermissionHandlerUtil.ensureStoragePermission(context);
+        await PermissionHandlerUtil.ensureStoragePermission(
+          context,
+          outputPath: file.path,
+        );
     if (!hasPermission) {
       return;
     }

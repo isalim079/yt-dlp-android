@@ -23,6 +23,105 @@ class BrowseService {
     return info.entries.map(BrowseVideo.fromPlaylistEntry).toList();
   }
 
+  /// Personalized Home rows from recent searches and watched videos.
+  ///
+  /// Returns an empty list without calling yt-dlp when there is no activity.
+  Future<List<BrowseVideo>> recommend({
+    required List<String> searchQueries,
+    required List<BrowseVideo> watched,
+    int limit = 20,
+  }) async {
+    final List<String> seeds = recommendationSeeds(
+      searchQueries: searchQueries,
+      watched: watched,
+    );
+    if (seeds.isEmpty) {
+      return const <BrowseVideo>[];
+    }
+
+    final Set<String> seen = <String>{
+      for (final BrowseVideo video in watched)
+        if (video.id.isNotEmpty) video.id,
+    };
+    final List<BrowseVideo> out = <BrowseVideo>[];
+    int searches = 0;
+    for (final String seed in seeds) {
+      if (out.length >= limit || searches >= 3) {
+        break;
+      }
+      try {
+        final List<BrowseVideo> results = await search(seed, count: 12);
+        searches += 1;
+        for (final BrowseVideo video in results) {
+          if (video.id.isEmpty || !seen.add(video.id)) {
+            continue;
+          }
+          out.add(video);
+          if (out.length >= limit) {
+            break;
+          }
+        }
+      } on Object {
+        AppLogger.w('Recommend search failed for "$seed"');
+      }
+    }
+    return out;
+  }
+
+  /// Query seeds for [recommend], newest activity first, unique, no yt-dlp.
+  static List<String> recommendationSeeds({
+    required List<String> searchQueries,
+    required List<BrowseVideo> watched,
+    int maxSearchQueries = 5,
+    int maxWatched = 3,
+  }) {
+    final List<String> seeds = <String>[];
+    final Set<String> seen = <String>{};
+
+    void addSeed(String raw) {
+      final String value = raw.trim();
+      if (value.isEmpty) {
+        return;
+      }
+      final String key = value.toLowerCase();
+      if (!seen.add(key)) {
+        return;
+      }
+      seeds.add(value);
+    }
+
+    for (final String query in searchQueries.take(maxSearchQueries)) {
+      addSeed(query);
+    }
+    for (final BrowseVideo video in watched.take(maxWatched)) {
+      addSeed(video.uploader ?? '');
+      addSeed(shortenedTitle(video.title));
+    }
+    return seeds;
+  }
+
+  /// Short search phrase from a video title (first words, drop suffix).
+  static String shortenedTitle(String title) {
+    String text = title.trim();
+    if (text.isEmpty) {
+      return '';
+    }
+    final int pipe = text.indexOf('|');
+    if (pipe > 8) {
+      text = text.substring(0, pipe);
+    }
+    final int dash = text.indexOf(' - ');
+    if (dash > 8) {
+      text = text.substring(0, dash);
+    }
+    return text
+        .split(RegExp(r'\s+'))
+        .where((String word) => word.isNotEmpty)
+        .take(6)
+        .join(' ')
+        .trim();
+  }
+
   /// Popular videos from the first Home source that returns entries.
   Future<List<BrowseVideo>> trending() async {
     Object? lastError;

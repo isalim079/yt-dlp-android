@@ -49,8 +49,22 @@ void main() {
     test('can switch to tab 1', () {
       final ProviderContainer container = ProviderContainer();
       addTearDown(container.dispose);
-      container.read(tabIndexProvider.notifier).state = 1;
+      container.read(tabIndexProvider.notifier).goTo(1);
       expect(container.read(tabIndexProvider), 1);
+    });
+
+    test('goBack restores the previous tab then stops', () {
+      final ProviderContainer container = ProviderContainer();
+      addTearDown(container.dispose);
+      final TabIndexController nav = container.read(tabIndexProvider.notifier);
+      nav.goTo(1);
+      nav.goTo(2);
+      expect(nav.goBack(), isTrue);
+      expect(container.read(tabIndexProvider), 1);
+      expect(nav.goBack(), isTrue);
+      expect(container.read(tabIndexProvider), 0);
+      expect(nav.goBack(), isFalse);
+      expect(container.read(tabIndexProvider), 0);
     });
   });
 }

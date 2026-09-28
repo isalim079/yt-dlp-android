@@ -175,7 +175,10 @@ class HomeScreenController extends AutoDisposeNotifier<HomeScreenState> {
       return;
     }
     final bool allowed =
-        await PermissionHandlerUtil.ensureStoragePermission(context);
+        await PermissionHandlerUtil.ensureStoragePermission(
+          context,
+          outputPath: resolvedOutputPath,
+        );
     if (!allowed) {
       return;
     }
@@ -188,7 +191,7 @@ class HomeScreenController extends AutoDisposeNotifier<HomeScreenState> {
           title: videoInfo.title,
           thumbnailUrl: videoInfo.thumbnail,
         );
-    ref.read(tabIndexProvider.notifier).state = 2;
+    ref.read(tabIndexProvider.notifier).goTo(2);
     ref.read(librarySectionProvider.notifier).state = LibrarySection.downloads;
     if (context.mounted) {
       AppSnackbar.showSuccess(context, AppStrings.downloadStarted);
@@ -221,7 +224,10 @@ class HomeScreenController extends AutoDisposeNotifier<HomeScreenState> {
       return;
     }
     final bool allowed =
-        await PermissionHandlerUtil.ensureStoragePermission(context);
+        await PermissionHandlerUtil.ensureStoragePermission(
+          context,
+          outputPath: outputPath,
+        );
     if (!allowed) {
       return;
     }
@@ -234,7 +240,7 @@ class HomeScreenController extends AutoDisposeNotifier<HomeScreenState> {
           totalCount: info.count,
           entries: info.entries,
         );
-    ref.read(tabIndexProvider.notifier).state = 2;
+    ref.read(tabIndexProvider.notifier).goTo(2);
     ref.read(librarySectionProvider.notifier).state = LibrarySection.downloads;
     if (context.mounted) {
       AppSnackbar.showSuccess(context, AppStrings.downloadStarted);

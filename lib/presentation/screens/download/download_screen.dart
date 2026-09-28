@@ -382,7 +382,7 @@ class _DownloadScreenState extends ConsumerState<DownloadScreen> {
             title: AppStrings.noDownloadedFiles,
             subtitle: 'Files downloaded through this app will appear here for immediate access.',
             buttonLabel: AppStrings.navGoHome,
-            onAction: () => ref.read(tabIndexProvider.notifier).state = 0,
+            onAction: () => ref.read(tabIndexProvider.notifier).goTo(0),
           );
         }
         return _AppDownloadedListView(records: appDownloads);
@@ -394,7 +394,7 @@ class _DownloadScreenState extends ConsumerState<DownloadScreen> {
             title: 'No active downloads',
             subtitle: 'Paste a video URL on the Home tab to start downloading.',
             buttonLabel: AppStrings.navGoHome,
-            onAction: () => ref.read(tabIndexProvider.notifier).state = 0,
+            onAction: () => ref.read(tabIndexProvider.notifier).goTo(0),
           );
         }
         return ListView(
@@ -512,7 +512,7 @@ class _DownloadScreenState extends ConsumerState<DownloadScreen> {
       case DownloadFilterTab.all:
         if (queue.isEmpty) {
           return _EmptyDownloadsView(
-            onGoHome: () => ref.read(tabIndexProvider.notifier).state = 0,
+            onGoHome: () => ref.read(tabIndexProvider.notifier).goTo(0),
           );
         }
         return ListView(
@@ -762,7 +762,10 @@ class _AppDownloadedListView extends ConsumerWidget {
     }
 
     final bool allowed =
-        await PermissionHandlerUtil.ensureStoragePermission(context);
+        await PermissionHandlerUtil.ensureStoragePermission(
+          context,
+          outputPath: record.filePath,
+        );
     if (!allowed) {
       return;
     }

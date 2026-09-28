@@ -12,13 +12,27 @@ import 'logger.dart';
 
 /// Handles runtime permission requests for storage and notifications.
 abstract final class PermissionHandlerUtil {
-  /// Requests storage permission on Android &lt; 13.
+  /// Whether [path] is shared/public storage (e.g. `/storage/emulated/0/Download`).
+  static bool isPublicStoragePath(String path) {
+    final String normalized = path.replaceAll('\\', '/').toLowerCase();
+    if (normalized.isEmpty) {
+      return false;
+    }
+    if (normalized.contains('/android/data/') ||
+        normalized.contains('/android/obb/') ||
+        normalized.startsWith('/data/data/') ||
+        normalized.startsWith('/data/user/')) {
+      return false;
+    }
+    return true;
+  }
+
+  /// Requests write access needed to create a new download file.
   ///
-  /// On Android 13+ returns `true` (public Downloads path does not require
-  /// legacy storage permission for typical yt-dlp output).
-  /// On Android 11–12 requests [Permission.manageExternalStorage].
+  /// Android 13+ does not need READ_MEDIA_* to save a new file.
+  /// Android 11–12 requests [Permission.manageExternalStorage] only for public paths.
   /// Below Android 11 requests [Permission.storage].
-  static Future<bool> requestStoragePermission() async {
+  static Future<bool> requestStoragePermission({String? outputPath}) async {
     try {
       if (!Platform.isAndroid) {
         return true;
@@ -26,33 +40,31 @@ abstract final class PermissionHandlerUtil {
       final AndroidDeviceInfo androidInfo = await DeviceInfoPlugin().androidInfo;
       final int sdk = androidInfo.version.sdkInt;
 
-      AppLogger.i('Android SDK: $sdk — requesting storage permission');
+      AppLogger.i('Android SDK: $sdk — checking download write permission');
 
       if (sdk >= 33) {
-        final PermissionStatus video = await Permission.videos.request();
-        final PermissionStatus audio = await Permission.audio.request();
-        AppLogger.i(
-          'Android 13+ permissions: video=${video.name} audio=${audio.name}',
-        );
-        return video.isGranted || audio.isGranted;
-      } else if (sdk >= 30) {
+        return true;
+      }
+      if (sdk >= 30) {
+        if (outputPath != null && !isPublicStoragePath(outputPath)) {
+          return true;
+        }
         final PermissionStatus status =
             await Permission.manageExternalStorage.request();
         AppLogger.i('MANAGE_EXTERNAL_STORAGE: ${status.name}');
         return status.isGranted;
-      } else {
-        final PermissionStatus status = await Permission.storage.request();
-        AppLogger.i('WRITE_EXTERNAL_STORAGE: ${status.name}');
-        return status.isGranted;
       }
+      final PermissionStatus status = await Permission.storage.request();
+      AppLogger.i('WRITE_EXTERNAL_STORAGE: ${status.name}');
+      return status.isGranted;
     } catch (e, st) {
       AppLogger.e('Permission request failed', e, st);
       return false;
     }
   }
 
-  /// Whether storage-related access is already granted for this Android SDK.
-  static Future<bool> hasStoragePermission() async {
+  /// Whether storage-related write access is already granted for this Android SDK.
+  static Future<bool> hasStoragePermission({String? outputPath}) async {
     try {
       if (!Platform.isAndroid) {
         return true;
@@ -60,14 +72,40 @@ abstract final class PermissionHandlerUtil {
       final AndroidDeviceInfo androidInfo = await DeviceInfoPlugin().androidInfo;
       final int sdk = androidInfo.version.sdkInt;
       if (sdk >= 33) {
-        return Permission.videos.isGranted;
-      } else if (sdk >= 30) {
-        return Permission.manageExternalStorage.isGranted;
-      } else {
-        return Permission.storage.isGranted;
+        return true;
       }
+      if (sdk >= 30) {
+        if (outputPath != null && !isPublicStoragePath(outputPath)) {
+          return true;
+        }
+        return await Permission.manageExternalStorage.isGranted;
+      }
+      return await Permission.storage.isGranted;
     } catch (e, st) {
       AppLogger.e('hasStoragePermission check failed', e, st);
+      return false;
+    }
+  }
+
+  /// Requests media-library read access so a public Downloads folder can be listed.
+  static Future<bool> requestMediaReadPermission() async {
+    try {
+      if (!Platform.isAndroid) {
+        return true;
+      }
+      final AndroidDeviceInfo androidInfo = await DeviceInfoPlugin().androidInfo;
+      final int sdk = androidInfo.version.sdkInt;
+      if (sdk >= 33) {
+        final PermissionStatus video = await Permission.videos.request();
+        final PermissionStatus audio = await Permission.audio.request();
+        AppLogger.i(
+          'Media read permissions: video=${video.name} audio=${audio.name}',
+        );
+        return video.isGranted || audio.isGranted;
+      }
+      return await requestStoragePermission();
+    } catch (e, st) {
+      AppLogger.e('Media read permission request failed', e, st);
       return false;
     }
   }
@@ -104,11 +142,14 @@ abstract final class PermissionHandlerUtil {
   ///
   /// Returns `true` when it is safe to proceed, `false` when the flow should
   /// abort after handling denial UI.
-  static Future<bool> ensureStoragePermission(BuildContext context) async {
-    if (await hasStoragePermission()) {
+  static Future<bool> ensureStoragePermission(
+    BuildContext context, {
+    String? outputPath,
+  }) async {
+    if (await hasStoragePermission(outputPath: outputPath)) {
       return true;
     }
-    final bool granted = await requestStoragePermission();
+    final bool granted = await requestStoragePermission(outputPath: outputPath);
     if (!granted) {
       if (context.mounted) {
         await showPermissionDeniedDialog(context);

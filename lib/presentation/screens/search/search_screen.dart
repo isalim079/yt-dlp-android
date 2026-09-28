@@ -62,6 +62,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     );
     final AsyncValue<List<String>> history = ref.watch(searchHistoryProvider);
 
+    ref.listen<String>(searchQueryProvider, (String? previous, String next) {
+      if (next.isEmpty && _controller.text.isNotEmpty) {
+        _controller.clear();
+      }
+    });
+
     return Scaffold(
       backgroundColor: c.background,
       appBar: AppBar(title: const Text(AppStrings.navSearch)),

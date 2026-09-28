@@ -37,7 +37,7 @@ abstract final class ShareIntentHandler {
         final String? text = _firstYoutubeSharedText(media);
         if (text != null) {
           _applySharedUrl(ref, text);
-          ref.read(tabIndexProvider.notifier).state = 0;
+          ref.read(tabIndexProvider.notifier).goTo(0);
           AppLogger.i('Share intent (stream): URL applied');
         }
       },

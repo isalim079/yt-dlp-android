@@ -9,11 +9,13 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_dimensions.dart';
 import '../../core/constants/app_strings.dart';
 import '../../core/theme/app_ui_colors.dart';
+import '../../core/utils/permission_handler_util.dart';
 import '../../data/models/browse_video.dart';
 import '../../data/models/playback_resolved.dart';
 import '../../data/providers/browse_providers.dart';
 import '../../data/providers/library_providers.dart';
 import '../../data/providers/player_provider.dart';
+import '../../data/providers/settings_providers.dart';
 import '../../data/local/library_store.dart';
 import '../widgets/browse/browse_video_tile.dart';
 import '../widgets/common/app_snackbar.dart';
@@ -128,6 +130,14 @@ class WatchPage extends ConsumerWidget {
                           icon: Icons.download_rounded,
                           label: AppStrings.playerDownload,
                           onTap: () async {
+                            final bool allowed =
+                                await PermissionHandlerUtil.ensureStoragePermission(
+                                  context,
+                                  outputPath: ref.read(outputPathProvider),
+                                );
+                            if (!allowed) {
+                              return;
+                            }
                             await ref
                                 .read(playerControllerProvider.notifier)
                                 .downloadCurrent();
