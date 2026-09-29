@@ -22,12 +22,15 @@ services:
       REDIS_URL: redis://redis:6379
       DOWNLOAD_DIR: /data/downloads
       PUBLIC_BASE_URL: http://localhost:8080
+      NEWPIPE_URL: http://newpipe:8091
     volumes:
       - download_data:/data/downloads
     depends_on:
       mongo:
         condition: service_started
       redis:
+        condition: service_started
+      newpipe:
         condition: service_started
     restart: unless-stopped
     expose:
@@ -46,6 +49,15 @@ services:
       DENO_BIN: /usr/local/bin/deno
     depends_on:
       - redis
+    restart: unless-stopped
+
+  newpipe:
+    build:
+      context: ./workers/newpipe
+    environment:
+      NEWPIPE_PORT: "8091"
+    expose:
+      - "8091"
     restart: unless-stopped
 
   downloader:

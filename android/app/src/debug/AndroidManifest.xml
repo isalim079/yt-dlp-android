@@ -4,4 +4,6 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Allow LAN http://192.168.x.x:8080 Playback API during wireless debug. -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>

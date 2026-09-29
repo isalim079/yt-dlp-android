@@ -45,6 +45,7 @@ export const QualityContractSchema = z.object({
   requestedQuality: z.string(),
   selectedQuality: z.string(),
   qualityFallback: z.boolean().default(false),
+  fallbackReason: z.string().optional(),
 });
 
 export const PlaybackManifestSchema = z.object({

@@ -16,12 +16,13 @@ void main() {
       expect(resolved.mode, PlaybackMode.progressive);
     });
 
-    test('requests 360 and picks closest below when 360 missing', () {
+    test('requests 360 and picks closest at-or-above when 360 missing', () {
       final PlaybackResolved resolved = PlaybackResolver.fromJson(
         _ladder(<int>[144, 240, 720]),
         quality: PlaybackQuality.p360,
       );
-      expect(resolved.height, 240);
+      // README §14: prefer height >= requested when available.
+      expect(resolved.height, 720);
     });
 
     test('requests 360 with only 720/1080 picks lowest above', () {

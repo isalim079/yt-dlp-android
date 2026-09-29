@@ -7,12 +7,13 @@ import '../../core/utils/logger.dart';
 import '../../core/utils/youtube_urls.dart';
 import '../models/playback_po_token.dart';
 import '../models/playback_resolved.dart';
+import 'playback_stream_validate.dart';
 import 'ytdlp_service.dart';
 
 /// Capability-based strategies — not a hard-coded list of dead clients.
 ///
-/// Order for start/warm: [defaultClients] → [android] → [mwebWithPot] (if
-/// tokens) → [webSafariHls] → [webEmbedded].
+/// Order for start/warm (align with server): [webSafariHls] →
+/// [defaultClients] → [mwebWithPot] (if tokens) → [android] → [webEmbedded].
 enum ExtractionStrategy {
   /// Let current yt-dlp pick YouTube clients (no `player_client` override).
   defaultClients,
@@ -74,6 +75,10 @@ const String kPlaybackWebEmbeddedClient = 'web_embedded';
 const Duration kPlaybackMintTimeout = Duration(seconds: 10);
 
 /// Append GVS PO token as `pot=` on googlevideo HTTPS URLs when missing.
+///
+/// Prefer passing PO tokens to yt-dlp extractor-args so URLs are minted fresh.
+/// This helper is kept only for explicit mweb URL repair / tests — never use it
+/// to "upgrade" an android `c=ANDROID` URL with a web BotGuard token.
 String? playbackAppendGvsPot(String? url, String? pot) {
   if (url == null || url.isEmpty) {
     return url;
@@ -87,6 +92,10 @@ String? playbackAppendGvsPot(String? url, String? pot) {
     return url;
   }
   if (lower.contains('.m3u8') || lower.contains('manifest/hls')) {
+    return url;
+  }
+  // Never splice a web PO onto an Android GVS signature.
+  if (lower.contains('c=android') || lower.contains('c%3dandroid')) {
     return url;
   }
   if (lower.contains('pot=')) {
@@ -191,11 +200,20 @@ bool playbackStartIsAcceptable(PlaybackResolved resolved) {
 }
 
 List<ExtractionStrategy> _startStrategies({required bool hasPo}) {
+  // Align with server ladder: web_safari (HLS / GVS-PO-light) before mweb.
+  if (hasPo) {
+    return <ExtractionStrategy>[
+      ExtractionStrategy.webSafariHls,
+      ExtractionStrategy.defaultClients,
+      ExtractionStrategy.mwebWithPot,
+      ExtractionStrategy.android,
+      ExtractionStrategy.webEmbedded,
+    ];
+  }
   return <ExtractionStrategy>[
+    ExtractionStrategy.webSafariHls,
     ExtractionStrategy.defaultClients,
     ExtractionStrategy.android,
-    if (hasPo) ExtractionStrategy.mwebWithPot,
-    ExtractionStrategy.webSafariHls,
     ExtractionStrategy.webEmbedded,
   ];
 }
@@ -211,17 +229,25 @@ Future<PlaybackResolved> resolvePlaybackStart({
   Duration timeout = const Duration(seconds: 90),
   Duration mintTimeout = kPlaybackMintTimeout,
   Future<PlaybackPoToken?> Function(String videoId)? mintPoTokens,
+  bool validateStreams = false,
 }) async {
   final String? videoId = YoutubeUrls.videoId(url);
-  PlaybackPoToken? tokens;
 
+  // Mint FIRST — then extract WITH tokens. Never open a URL then mint.
+  PlaybackPoToken? tokens;
   if (mintPoTokens != null && videoId != null) {
     try {
-      AppLogger.i('BotGuard mint for start $videoId');
+      AppLogger.i('BotGuard mint before extract videoId=$videoId');
       tokens = await mintPoTokens(videoId).timeout(mintTimeout);
       if (tokens != null && !tokens.isComplete) {
-        AppLogger.w('BotGuard mint incomplete; skipping mwebWithPot');
+        AppLogger.w('BotGuard mint incomplete; mwebWithPot unavailable');
         tokens = null;
+      } else if (tokens != null) {
+        AppLogger.i(
+          'BotGuard ready player+GVS; forcing fresh extract for $videoId',
+        );
+        // Pre-token JSON must not be reused with a new token context.
+        ytdlp.invalidatePlaybackCaches(url);
       }
     } on Object catch (error, stack) {
       AppLogger.w('BotGuard mint failed: $error\n$stack');
@@ -229,6 +255,8 @@ Future<PlaybackResolved> resolvePlaybackStart({
     }
   }
 
+  final bool refresh = forceRefresh || tokens != null;
+  PlaybackResolved? best;
   for (final ExtractionStrategy strategy in _startStrategies(
     hasPo: tokens != null,
   )) {
@@ -236,18 +264,54 @@ Future<PlaybackResolved> resolvePlaybackStart({
       ytdlp: ytdlp,
       url: url,
       strategy: strategy,
-      forceRefresh: forceRefresh,
+      forceRefresh: refresh,
       timeout: timeout,
       tokens: tokens,
-      // Selection preference only — yt-dlp still dumps full formats[].
       quality: PlaybackQuality.p360,
     );
-    if (resolved != null) {
+    if (resolved == null) {
+      continue;
+    }
+    if (!validateStreams) {
       return resolved;
     }
+    final StreamValidationResult probe = await validatePlaybackStreams(resolved);
+    if (probe.ok) {
+      return resolved;
+    }
+    AppLogger.w(
+      'strategy=${strategy.name} failed stream validate: ${probe.detail} '
+      'v=${probe.videoStatus} a=${probe.audioStatus}',
+    );
+    // Keep last playable as soft fallback if every probe fails.
+    best = resolved;
+  }
+
+  if (best != null) {
+    AppLogger.w('returning last candidate without successful probe');
+    return best;
   }
 
   throw const YtdlpException(AppStrings.errorPlaybackLadderExhausted);
+}
+
+/// Invalidate caches, remint PO, re-extract, validate — for 403/GVS recovery.
+Future<PlaybackResolved> resolvePlaybackAfterGvsFailure({
+  required YtdlpService ytdlp,
+  required String url,
+  Duration timeout = const Duration(seconds: 90),
+  Future<PlaybackPoToken?> Function(String videoId)? mintPoTokens,
+}) async {
+  AppLogger.i('GVS recovery: invalidate + remint + fresh extract');
+  ytdlp.invalidatePlaybackCaches(url);
+  return resolvePlaybackStart(
+    ytdlp: ytdlp,
+    url: url,
+    forceRefresh: true,
+    timeout: timeout,
+    mintPoTokens: mintPoTokens,
+    validateStreams: true,
+  );
 }
 
 Future<PlaybackResolved?> _tryStrategy({
@@ -276,21 +340,20 @@ Future<PlaybackResolved?> _tryStrategy({
     client: client,
     forceRefresh: forceRefresh,
     timeout: timeout,
-    poToken: pot?.extractorValue,
+    poToken: pot?.extractorValueFor(client),
     visitorData: pot?.visitorData,
   );
   if (raw == null) {
     return null;
   }
 
-  final PlaybackResolved clean = playbackWithGvsPot(
-    playbackSanitizeAndroidVr(raw),
-    pot?.gvs,
-  );
-  AppLogger.i(
-    'strategy=${strategy.name} client=$client quality=${quality.name} '
-    'mode=${clean.mode.name} height=${clean.height} '
-    'heights=${clean.availableHeights} playable=${clean.isPlayable}',
+  // Tokens already applied during extraction — do NOT splice pot= onto URLs.
+  final PlaybackResolved clean = playbackSanitizeAndroidVr(raw);
+  _logResolvedSafe(
+    strategy: strategy.name,
+    client: client,
+    hasPo: pot != null,
+    resolved: clean,
   );
   if (playbackStartIsAcceptable(clean)) {
     return clean;
@@ -304,20 +367,41 @@ Future<PlaybackResolved?> _tryStrategy({
       client: client,
       forceRefresh: false,
       timeout: timeout,
-      poToken: pot?.extractorValue,
+      poToken: pot?.extractorValueFor(client),
       visitorData: pot?.visitorData,
     );
     if (auto != null) {
-      final PlaybackResolved cleanAuto = playbackWithGvsPot(
-        playbackSanitizeAndroidVr(auto),
-        pot?.gvs,
-      );
+      final PlaybackResolved cleanAuto = playbackSanitizeAndroidVr(auto);
       if (playbackStartIsAcceptable(cleanAuto)) {
         return cleanAuto;
       }
     }
   }
   return null;
+}
+
+void _logResolvedSafe({
+  required String strategy,
+  required String client,
+  required bool hasPo,
+  required PlaybackResolved resolved,
+}) {
+  AppLogger.i(
+    'strategy=$strategy client=$client po=${hasPo ? 'present' : 'none'} '
+    'mode=${resolved.mode.name} height=${resolved.height} '
+    'heights=${resolved.availableHeights} '
+    'video=${_itagOf(resolved.videoUrl)} audio=${_itagOf(resolved.audioUrl)} '
+    'progressive=${_itagOf(resolved.progressiveUrl)} '
+    'playable=${resolved.isPlayable}',
+  );
+}
+
+String _itagOf(String? url) {
+  if (url == null || url.isEmpty) {
+    return '-';
+  }
+  final RegExpMatch? m = RegExp(r'[?&]itag=(\d+)').firstMatch(url);
+  return m?.group(1) ?? 'ok';
 }
 
 /// Background HD JSON. Never meant to open the player by itself.
@@ -339,6 +423,8 @@ Future<PlaybackResolved?> warmPlaybackHdLadder({
         tokens = await mintPoTokens(videoId);
         if (tokens != null && !tokens.isComplete) {
           tokens = null;
+        } else if (tokens != null) {
+          ytdlp.invalidatePlaybackCaches(url);
         }
       } on Object catch (error, stack) {
         AppLogger.w('HD warm mint failed: $error\n$stack');

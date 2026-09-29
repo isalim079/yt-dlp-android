@@ -228,6 +228,7 @@ class PlaybackQualityContract {
     required this.requestedQuality,
     required this.selectedQuality,
     this.qualityFallback = false,
+    this.fallbackReason,
   });
 
   /// Client-requested quality label.
@@ -239,12 +240,16 @@ class PlaybackQualityContract {
   /// True when selected is below requested.
   final bool qualityFallback;
 
+  /// Machine reason when [qualityFallback] is true.
+  final String? fallbackReason;
+
   /// Parses contract JSON.
   factory PlaybackQualityContract.fromJson(Map<String, dynamic> json) {
     return PlaybackQualityContract(
       requestedQuality: json['requestedQuality']?.toString() ?? 'auto',
       selectedQuality: json['selectedQuality']?.toString() ?? 'auto',
       qualityFallback: json['qualityFallback'] == true,
+      fallbackReason: json['fallbackReason']?.toString(),
     );
   }
 }

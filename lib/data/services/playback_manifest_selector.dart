@@ -7,7 +7,7 @@ import '../models/playback_manifest.dart';
 import '../models/playback_resolved.dart';
 import '../models/video_info.dart';
 
-/// Priority (architecture §7): HLS live → adaptive V+A → progressive → HLS → fail.
+/// Priority: adaptive V+A for HD → progressive low → HLS → fail.
 abstract final class PlaybackManifestSelector {
   /// Picks streams for [quality] and returns the legacy [PlaybackResolved]
   /// shape used by [PlayerController] / media_kit.
@@ -69,7 +69,7 @@ abstract final class PlaybackManifestSelector {
       );
     }
 
-    // Priority: separate video + audio (required for reliable 1080p+).
+    // Priority: separate video + audio (required for reliable 720p+).
     if (video != null && audio != null) {
       return PlaybackResolved(
         info: info,
@@ -155,30 +155,38 @@ abstract final class PlaybackManifestSelector {
     if (all.isEmpty) {
       return null;
     }
-    final int? maxH = quality.maxHeight;
+    final int? targetH = quality.maxHeight;
     List<VideoRepresentation> pool = all;
-    if (maxH != null) {
-      final List<VideoRepresentation> atOrBelow =
-          all.where((VideoRepresentation v) => v.height <= maxH).toList();
-      if (atOrBelow.isNotEmpty) {
-        pool = atOrBelow;
-      } else {
-        final List<VideoRepresentation> above =
-            all.where((VideoRepresentation v) => v.height > maxH).toList();
-        if (above.isEmpty) {
-          return null;
-        }
-        above.sort(
+    if (targetH != null) {
+      // Prefer at-or-above target (closest), else highest below.
+      final List<VideoRepresentation> atOrAbove =
+          all.where((VideoRepresentation v) => v.height >= targetH).toList();
+      if (atOrAbove.isNotEmpty) {
+        atOrAbove.sort(
           (VideoRepresentation a, VideoRepresentation b) =>
               a.height.compareTo(b.height),
         );
-        pool = <VideoRepresentation>[above.first];
+        final int bestH = atOrAbove.first.height;
+        pool = atOrAbove
+            .where((VideoRepresentation v) => v.height == bestH)
+            .toList();
+      } else {
+        final List<VideoRepresentation> below =
+            all.where((VideoRepresentation v) => v.height < targetH).toList();
+        if (below.isEmpty) {
+          return null;
+        }
+        below.sort(
+          (VideoRepresentation a, VideoRepresentation b) =>
+              b.height.compareTo(a.height),
+        );
+        pool = <VideoRepresentation>[below.first];
       }
     }
     return _bestVideo(pool, quality);
   }
 
-  /// Prefer H.264 ≤ 1080 for Auto; otherwise highest height + H.264 + bitrate.
+  /// AUTO = highest compatible. Mild H.264 preference below 1440; VP9/AV1 OK above.
   static VideoRepresentation? _bestVideo(
     List<VideoRepresentation> candidates,
     PlaybackQuality quality,
@@ -186,23 +194,17 @@ abstract final class PlaybackManifestSelector {
     if (candidates.isEmpty) {
       return null;
     }
-    List<VideoRepresentation> pool = candidates;
-    if (quality == PlaybackQuality.auto) {
-      final List<VideoRepresentation> capped = candidates
-          .where((VideoRepresentation c) => c.height <= 1080)
-          .toList();
-      if (capped.isNotEmpty) {
-        pool = capped;
-      }
-    }
-    pool = List<VideoRepresentation>.from(pool);
+    final List<VideoRepresentation> pool =
+        List<VideoRepresentation>.from(candidates);
+    final int targetHint = quality.maxHeight ?? 0;
+    final bool hiRes = quality == PlaybackQuality.auto || targetHint >= 1440;
     pool.sort((VideoRepresentation a, VideoRepresentation b) {
-      final int codec = (b.isH264 ? 1 : 0).compareTo(a.isH264 ? 1 : 0);
-      if (codec != 0) {
-        return codec;
-      }
       if (a.height != b.height) {
         return b.height.compareTo(a.height);
+      }
+      final int codec = _codecScore(b, hiRes).compareTo(_codecScore(a, hiRes));
+      if (codec != 0) {
+        return codec;
       }
       final int ext = _extScore(b.ext).compareTo(_extScore(a.ext));
       if (ext != 0) {
@@ -211,6 +213,32 @@ abstract final class PlaybackManifestSelector {
       return (b.bitrate ?? 0).compareTo(a.bitrate ?? 0);
     });
     return pool.first;
+  }
+
+  static int _codecScore(VideoRepresentation v, bool hiRes) {
+    final String c = (v.codec ?? '').toLowerCase();
+    final bool h264 = c.contains('avc') || c.contains('h264');
+    final bool vp9 = c.contains('vp9');
+    final bool av1 = c.contains('av01');
+    if (hiRes) {
+      if (av1 || vp9) {
+        return 3;
+      }
+      if (h264) {
+        return 2;
+      }
+      return 1;
+    }
+    if (h264) {
+      return 3;
+    }
+    if (vp9) {
+      return 2;
+    }
+    if (av1) {
+      return 1;
+    }
+    return 0;
   }
 
   static int _extScore(String? ext) {

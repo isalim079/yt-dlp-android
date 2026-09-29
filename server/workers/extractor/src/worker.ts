@@ -14,7 +14,17 @@ const log = pino({ name: 'yxz-extractor' });
 async function main(): Promise<void> {
   const redisUrl = process.env.REDIS_URL ?? 'redis://redis:6379';
   const connection = new Redis(redisUrl, { maxRetriesPerRequest: null });
-  const po = new PoTokenProvider();
+  const poRedis = connection.duplicate();
+
+  const po = new PoTokenProvider(
+    async (videoId, ctx) => poRedis.get(`po:video:${videoId}:${ctx}`),
+    async (videoId, ctx, token, ttl) => {
+      await poRedis.set(`po:video:${videoId}:${ctx}`, token, 'EX', ttl);
+    },
+    async (videoId, ctx) => {
+      await poRedis.del(`po:video:${videoId}:${ctx}`);
+    },
+  );
 
   const worker = new Worker<ExtractJobPayload, PlaybackManifest>(
     QUEUE_EXTRACT,

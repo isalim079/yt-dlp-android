@@ -161,6 +161,53 @@ export function registerRoutes(
   );
 
   app.get(
+    '/api/v1/videos/:videoId/playback/debug',
+    { preHandler: requireAuth(auth) },
+    async (req, reply) => {
+      try {
+        if (process.env.YXZ_PLAYBACK_DEBUG !== '1') {
+          throw new AppError(
+            ErrorCodes.VALIDATION_ERROR,
+            'Playback debug disabled (set YXZ_PLAYBACK_DEBUG=1)',
+            { statusCode: 404 },
+          );
+        }
+        const videoId = VideoIdSchema.parse(
+          (req.params as { videoId: string }).videoId,
+        );
+        const query = PlaybackQuerySchema.parse(req.query ?? {});
+        const debug = await playback.resolveDebug(videoId, query);
+        return reply.send(debug);
+      } catch (e) {
+        return sendError(reply, e);
+      }
+    },
+  );
+
+  app.post(
+    '/api/v1/playback/quality-mismatch',
+    { preHandler: requireAuth(auth) },
+    async (req, reply) => {
+      try {
+        const body = z
+          .object({
+            videoId: VideoIdSchema,
+            requestedQuality: z.string(),
+            selectedQuality: z.string(),
+            actualWidth: z.number().int().nonnegative(),
+            actualHeight: z.number().int().nonnegative(),
+          })
+          .parse(req.body);
+        void body;
+        metrics.inc('yxz_playback_quality_mismatch_total');
+        return reply.status(204).send();
+      } catch (e) {
+        return sendError(reply, e);
+      }
+    },
+  );
+
+  app.get(
     '/api/v1/videos/:videoId/subtitles',
     { preHandler: requireAuth(auth) },
     async (req, reply) => {

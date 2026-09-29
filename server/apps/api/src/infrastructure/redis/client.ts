@@ -103,4 +103,8 @@ export class PoTokenCache {
   async invalidate(videoId: string, contextHash: string): Promise<void> {
     await this.redis.del(this.key(videoId, contextHash));
   }
+
+  async del(videoId: string, contextHash: string): Promise<void> {
+    await this.invalidate(videoId, contextHash);
+  }
 }

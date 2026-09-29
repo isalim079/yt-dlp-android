@@ -11,6 +11,9 @@ import {
 import {
   PoTokenProvider,
   resolveWithStrategies,
+  selectWithDiagnostics,
+  applyQualityContract,
+  isCompleteForPlayback,
 } from '@yxz/extractor';
 import type { Env } from '../../config/env.js';
 import type { Redis } from 'ioredis';
@@ -20,11 +23,16 @@ import { profileHash } from '../auth/service.js';
 import { metrics } from '../../observability/metrics.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { Logger } from '../../observability/logger.js';
+import { NewPipeClient } from './newpipe-client.js';
+
+/** Bump when strategy order / adapters change so incomplete caches do not stick. */
+const EXTRACT_PROFILE = 'multi-v1';
 
 export class PlaybackService {
   private readonly cache: PlaybackCache;
   private readonly poCache: PoTokenCache;
   private readonly po: PoTokenProvider;
+  private readonly newpipe: NewPipeClient;
   private readonly extractQueue: Queue<ExtractJobPayload, PlaybackManifest>;
   private readonly extractEvents: QueueEvents;
   private readonly downloadQueue: Queue;
@@ -39,6 +47,11 @@ export class PlaybackService {
     this.po = new PoTokenProvider(
       (videoId, ctx) => this.poCache.get(videoId, ctx),
       (videoId, ctx, token, ttl) => this.poCache.set(videoId, ctx, token, ttl),
+      (videoId, ctx) => this.poCache.del(videoId, ctx),
+    );
+    this.newpipe = new NewPipeClient(
+      env.NEWPIPE_URL,
+      env.PLAYBACK_TIMEOUT_MS,
     );
     this.extractQueue = new Queue(QUEUE_EXTRACT, {
       connection: redis.duplicate(),
@@ -61,6 +74,7 @@ export class PlaybackService {
       codec: query.codec,
       audioLanguage: query.audioLanguage,
       hdr: query.hdr,
+      extract: EXTRACT_PROFILE,
     });
 
     if (!query.forceRefresh) {
@@ -112,21 +126,104 @@ export class PlaybackService {
     );
   }
 
+  /** Env-gated debug resolve with candidate listing. */
+  async resolveDebug(videoId: string, query: PlaybackQuery) {
+    const base = await this.resolve(videoId, {
+      ...query,
+      forceRefresh: true,
+    });
+    const { diagnostics } = selectWithDiagnostics(
+      base,
+      query.quality,
+      query.codec,
+      query.hdr,
+    );
+    return {
+      manifest: base,
+      diagnostics,
+    };
+  }
+
+  /**
+   * Facade: yt-dlp representation ladder → NewPipe if incomplete.
+   */
   private async resolveInline(
     videoId: string,
     query: PlaybackQuery,
   ): Promise<PlaybackManifest> {
     this.log.info({ videoId, quality: query.quality }, 'inline extract');
-    return resolveWithStrategies({
-      videoId,
-      quality: query.quality,
-      codec: query.codec,
-      audioLanguage: query.audioLanguage,
-      hdr: query.hdr,
-      ytdlpBin: this.env.YTDLP_BIN,
-      timeoutMs: this.env.PLAYBACK_TIMEOUT_MS,
-      po: this.po,
-    });
+    try {
+      const manifest = await resolveWithStrategies({
+        videoId,
+        quality: query.quality,
+        codec: query.codec,
+        audioLanguage: query.audioLanguage,
+        hdr: query.hdr,
+        ytdlpBin: this.env.YTDLP_BIN,
+        timeoutMs: this.env.PLAYBACK_TIMEOUT_MS,
+        po: this.po,
+      });
+      return this.tagAdapter(manifest, 'ytdlp');
+    } catch (e) {
+      const incomplete =
+        e instanceof AppError &&
+        Boolean(
+          e.details &&
+            typeof e.details === 'object' &&
+            (e.details as { incomplete?: boolean }).incomplete,
+        );
+
+      if (
+        e instanceof AppError &&
+        (incomplete || e.code === ErrorCodes.EXTRACTOR_NO_STREAM) &&
+        this.newpipe.enabled
+      ) {
+        this.log.info(
+          { videoId, reason: incomplete ? 'incomplete' : e.code },
+          'yt-dlp incomplete; trying NewPipe',
+        );
+        try {
+          const np = await this.newpipe.extract(videoId);
+          if (np) {
+            const gate = isCompleteForPlayback(np, query.quality);
+            if (gate.ok) {
+              const ranked = applyQualityContract(
+                np,
+                query.quality,
+                query.codec,
+                query.hdr,
+              );
+              return this.tagAdapter(ranked, 'newpipe');
+            }
+            this.log.warn(
+              { videoId, reason: gate.reason },
+              'NewPipe also incomplete',
+            );
+          }
+        } catch (npErr) {
+          this.log.warn(
+            { videoId, err: String(npErr) },
+            'NewPipe fallback failed',
+          );
+        }
+      }
+      throw e;
+    }
+  }
+
+  private tagAdapter(
+    manifest: PlaybackManifest,
+    adapter: string,
+  ): PlaybackManifest {
+    return {
+      ...manifest,
+      // Keep schema valid; adapter is observational via headers.
+      headers: {
+        ...manifest.headers,
+        'x-yxz-adapter': adapter,
+        'x-yxz-extract-profile': EXTRACT_PROFILE,
+      },
+    };
   }
 
   private async resolveViaWorker(
@@ -148,11 +245,33 @@ export class PlaybackService {
       { removeOnComplete: 100, removeOnFail: 100 },
     );
     try {
-      return await job.waitUntilFinished(
+      const result = await job.waitUntilFinished(
         this.extractEvents,
         this.env.PLAYBACK_TIMEOUT_MS + 5_000,
       );
+      return this.tagAdapter(result, 'ytdlp');
     } catch (e) {
+      if (this.newpipe.enabled) {
+        try {
+          const np = await this.newpipe.extract(videoId);
+          if (np) {
+            const gate = isCompleteForPlayback(np, query.quality);
+            if (gate.ok) {
+              return this.tagAdapter(
+                applyQualityContract(
+                  np,
+                  query.quality,
+                  query.codec,
+                  query.hdr,
+                ),
+                'newpipe',
+              );
+            }
+          }
+        } catch {
+          /* fall through */
+        }
+      }
       throw new AppError(
         ErrorCodes.EXTRACTOR_TIMEOUT,
         `Extractor worker failed: ${String(e)}`,

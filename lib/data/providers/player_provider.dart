@@ -30,6 +30,7 @@ import '../services/playback_hd_fallback.dart';
 import '../services/playback_po_token.dart';
 import '../services/playback_seek.dart';
 import '../services/playback_source_router.dart';
+import '../services/playback_stream_validate.dart';
 import '../services/ytdlp_platform_channel.dart';
 import '../services/ytdlp_service.dart';
 
@@ -210,11 +211,13 @@ class PlayerController extends Notifier<PlayerUiState> {
         return;
       }
       state = state.copyWith(resolved: resolved, quality: quality);
-      // 360 = muxed progressive; everything else = adaptive A/V from HD cache.
+      final bool low = quality == PlaybackQuality.p360 ||
+          quality == PlaybackQuality.p480;
       await _openResolved(
         resolved,
-        allowProgressiveFallback: quality == PlaybackQuality.p360,
+        allowProgressiveFallback: low,
         preferProgressive: quality == PlaybackQuality.p360,
+        preferAdaptive: !low,
       );
       if (keepAt != null && keepAt.inMilliseconds > 500) {
         try {
@@ -484,12 +487,43 @@ class PlayerController extends Notifier<PlayerUiState> {
       if (gen != _generation || hd == null) {
         return;
       }
+      final PlaybackResolved upgraded = hd.resolved;
       AppLogger.i(
-        'HD ladder ready max=${playbackMaxAvailableHeight(hd.resolved)} '
-        'fromServer=${hd.fromServer}',
+        'HD ladder ready max=${playbackMaxAvailableHeight(upgraded)} '
+        'fromServer=${hd.fromServer} height=${upgraded.height}',
       );
-      // Picker only — never reopen and never replace safe progressive.
-      state = state.copyWith(resolved: hd.resolved);
+      state = state.copyWith(
+        resolved: upgraded,
+        quality: PlaybackQuality.auto,
+      );
+      final int startH = start.height ?? 0;
+      final int hdH = upgraded.height ?? 0;
+      final bool canAdaptive = upgraded.videoUrl != null &&
+          upgraded.videoUrl!.isNotEmpty &&
+          upgraded.hasSeparateAudio;
+      if (hdH > startH && canAdaptive && !_opening) {
+        final Duration keepAt = _player?.state.position ?? Duration.zero;
+        AppLogger.i(
+          'HD reopen adaptive height=$hdH (was $startH) pos=${keepAt.inSeconds}s',
+        );
+        await _openResolved(
+          upgraded,
+          allowProgressiveFallback: true,
+          preferProgressive: false,
+          preferAdaptive: true,
+        );
+        if (gen != _generation) {
+          return;
+        }
+        if (keepAt.inMilliseconds > 500) {
+          try {
+            await _player?.seek(keepAt).timeout(const Duration(seconds: 3));
+          } on TimeoutException {
+            AppLogger.w('HD resume seek timed out');
+          }
+        }
+        await _assertActualHeight(upgraded);
+      }
     } on Object catch (error, stack) {
       AppLogger.w('HD warm failed: $error\n$stack');
     }
@@ -586,6 +620,7 @@ class PlayerController extends Notifier<PlayerUiState> {
     PlaybackResolved resolved, {
     required bool allowProgressiveFallback,
     bool preferProgressive = false,
+    bool preferAdaptive = false,
   }) async {
     final Player? player = _player;
     if (player == null) {
@@ -603,23 +638,14 @@ class PlayerController extends Notifier<PlayerUiState> {
         video.isNotEmpty &&
         !playbackUrlIsAndroidVr(video);
 
-    // Try streams that actually start on device first. Adaptive A/V attach
-    // often buffers forever when GVS rejects the video-only URL.
     final List<_OpenAttempt> attempts = <_OpenAttempt>[];
     if (preferProgressive && progressiveOk) {
       attempts.add(
         _OpenAttempt('progressive', progressive, headers: headers),
       );
     }
-    if (hlsOk) {
-      attempts.add(_OpenAttempt('hls', hls, headers: headers));
-    }
-    if (progressiveOk && !preferProgressive) {
-      attempts.add(
-        _OpenAttempt('progressive', progressive, headers: headers),
-      );
-    }
-    if (adaptiveOk) {
+    // HD / explicit ≥720: adaptive V+A first (README quality proof).
+    if (preferAdaptive && adaptiveOk) {
       attempts.add(
         _OpenAttempt(
           'adaptive',
@@ -628,6 +654,27 @@ class PlayerController extends Notifier<PlayerUiState> {
           audioUrl: resolved.hasSeparateAudio ? resolved.audioUrl : null,
         ),
       );
+    }
+    if (hlsOk && !preferAdaptive) {
+      attempts.add(_OpenAttempt('hls', hls, headers: headers));
+    }
+    if (progressiveOk && !preferProgressive) {
+      attempts.add(
+        _OpenAttempt('progressive', progressive, headers: headers),
+      );
+    }
+    if (adaptiveOk && !preferAdaptive) {
+      attempts.add(
+        _OpenAttempt(
+          'adaptive',
+          video,
+          headers: headers,
+          audioUrl: resolved.hasSeparateAudio ? resolved.audioUrl : null,
+        ),
+      );
+    }
+    if (hlsOk && preferAdaptive) {
+      attempts.add(_OpenAttempt('hls', hls, headers: headers));
     }
     if (allowProgressiveFallback) {
       final String? safe = _safeProgressiveUrl;
@@ -653,9 +700,39 @@ class PlayerController extends Notifier<PlayerUiState> {
           'open attempt ${i + 1}/${attempts.length} kind=${attempt.kind} '
           'hasAudio=${attempt.audioUrl != null}',
         );
-        final bool started = await _openAttempt(player, attempt);
+      await _applyHttpHeaderFields(player, attempt.headers);
+      // Probe before open so we don't hand dead itag=140 audio to media_kit.
+      if (attempt.audioUrl != null && attempt.audioUrl!.isNotEmpty) {
+        final StreamValidationResult probe = await validatePlaybackStreams(
+          PlaybackResolved(
+            info: resolved.info,
+            mode: PlaybackMode.adaptive,
+            headers: attempt.headers,
+            quality: resolved.quality,
+            videoUrl: attempt.url,
+            audioUrl: attempt.audioUrl,
+            height: resolved.height,
+            expiresAt: resolved.expiresAt,
+            formatId: resolved.formatId,
+            availableHeights: resolved.availableHeights,
+          ),
+        );
+        if (!probe.ok) {
+          AppLogger.w(
+            'skip adaptive open: probe failed v=${probe.videoStatus} '
+            'a=${probe.audioStatus}',
+          );
+          continue;
+        }
+      }
+      final bool started = await _openAttempt(player, attempt);
         _logPlaybackVisibility();
         if (started) {
+          if (preferAdaptive ||
+              (resolved.height ?? 0) >= 720 ||
+              state.quality == PlaybackQuality.auto) {
+            await _assertActualHeight(resolved);
+          }
           return;
         }
         AppLogger.w('open stalled on ${attempt.kind}; trying next');
@@ -672,6 +749,7 @@ class PlayerController extends Notifier<PlayerUiState> {
 
   Future<bool> _openAttempt(Player player, _OpenAttempt attempt) async {
     if (attempt.audioUrl != null && attempt.audioUrl!.isNotEmpty) {
+      await _applyHttpHeaderFields(player, attempt.headers);
       await _openMedia(
         player,
         Media(attempt.url, httpHeaders: attempt.headers),
@@ -696,6 +774,89 @@ class PlayerController extends Notifier<PlayerUiState> {
       );
     }
     return _waitUntilPlaybackAlive();
+  }
+
+  /// Propagate CDN headers to mpv so external audio tracks can fetch too.
+  Future<void> _applyHttpHeaderFields(
+    Player player,
+    Map<String, String> headers,
+  ) async {
+    if (headers.isEmpty) {
+      return;
+    }
+    try {
+      final String joined = headers.entries
+          .map((MapEntry<String, String> e) => '${e.key}: ${e.value}')
+          .join('\r\n');
+      final dynamic platform = player.platform;
+      await platform.setProperty('http-header-fields', joined);
+    } on Object catch (e) {
+      AppLogger.w('http-header-fields set failed: $e');
+    }
+  }
+
+  /// README §23: selected HD must not silently play as ~360.
+  Future<void> _assertActualHeight(PlaybackResolved resolved) async {
+    final Player? player = _player;
+    if (player == null) {
+      return;
+    }
+    final int expected = resolved.height ?? 0;
+    if (expected < 720) {
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+    final VideoParams params = player.state.videoParams;
+    final int actualH = params.h ?? 0;
+    final int actualW = params.w ?? 0;
+    AppLogger.i(
+      'playback height assert expected=$expected actual=${actualW}x$actualH '
+      'quality=${state.quality.name} mode=${resolved.mode.name}',
+    );
+    if (actualH > 0 && actualH < 900 && expected >= 1080) {
+      AppLogger.w(
+        'PLAYBACK_QUALITY_MISMATCH expected>=$expected actual=$actualH',
+      );
+      unawaited(_reportQualityMismatch(
+        expectedHeight: expected,
+        actualWidth: actualW,
+        actualHeight: actualH,
+      ));
+    }
+  }
+
+  Future<void> _reportQualityMismatch({
+    required int expectedHeight,
+    required int actualWidth,
+    required int actualHeight,
+  }) async {
+    try {
+      final BrowseVideo? video = state.video;
+      if (video == null) {
+        return;
+      }
+      final String? id = YoutubeUrls.videoId(video.url);
+      if (id == null) {
+        return;
+      }
+      final AppSettings settings =
+          ref.read(settingsProvider).valueOrNull ?? AppSettings.defaults;
+      if (settings.apiBaseUrl.trim().isEmpty) {
+        return;
+      }
+      await ref.read(yxzApiClientProvider).postJson(
+        '/api/v1/playback/quality-mismatch',
+        body: <String, dynamic>{
+          'videoId': id,
+          'requestedQuality': state.quality.label,
+          'selectedQuality': '${expectedHeight}p',
+          'actualWidth': actualWidth,
+          'actualHeight': actualHeight,
+        },
+      );
+    } on Object catch (e) {
+      AppLogger.w('quality-mismatch report failed: $e');
+    }
   }
 
   /// True when the player leaves the endless buffer state with a real stream.
@@ -788,8 +949,7 @@ class PlayerController extends Notifier<PlayerUiState> {
     if (video == null) {
       return;
     }
-    AppLogger.w('player error: $message');
-    // Never reopen the same dead URI (often ANDROID_VR itag 18).
+    AppLogger.w('player error (GVS?): $message');
     if (_streamErrorRetries >= 1) {
       state = state.copyWith(
         loading: false,
@@ -802,7 +962,41 @@ class PlayerController extends Notifier<PlayerUiState> {
       loading: true,
       error: AppStrings.errorPlaybackFailed,
     );
-    await _startAt360(forceRefresh: true, preservePosition: true);
+    // Invalidate + remint + fresh extract WITH PO — never reopen dead URLs.
+    try {
+      final YtdlpService ytdlp = ref.read(ytdlpServiceProvider);
+      final PlaybackResolved fresh = await resolvePlaybackAfterGvsFailure(
+        ytdlp: ytdlp,
+        url: video.url,
+        mintPoTokens: PlaybackPoTokenService.mint,
+      );
+      if (state.video?.id != video.id) {
+        return;
+      }
+      _rememberSafeProgressive(fresh);
+      state = state.copyWith(
+        resolved: fresh,
+        quality: PlaybackQuality.p360,
+        loading: false,
+        clearError: true,
+      );
+      final Duration keepAt = _player?.state.position ?? Duration.zero;
+      await _openResolved(
+        fresh,
+        allowProgressiveFallback: true,
+        preferProgressive: true,
+      );
+      if (keepAt.inMilliseconds > 500) {
+        try {
+          await _player?.seek(keepAt).timeout(const Duration(seconds: 3));
+        } on TimeoutException {
+          AppLogger.w('GVS recovery seek timed out');
+        }
+      }
+    } on Object catch (error, stack) {
+      AppLogger.e('GVS recovery failed', error, stack);
+      await _startAt360(forceRefresh: true, preservePosition: true);
+    }
   }
 
   void _maybeWriteHistory(Duration position) {

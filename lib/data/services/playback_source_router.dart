@@ -132,11 +132,27 @@ class PlaybackSourceRouter {
             forceRefresh: forceRefresh,
             mintPoTokens: PlaybackPoTokenService.mint,
           )
-        : await ytdlp.resolvePlayback(
-            url,
-            quality: quality,
+        : await resolvePlaybackStart(
+            ytdlp: ytdlp,
+            url: url,
             forceRefresh: forceRefresh,
-          );
+            mintPoTokens: PlaybackPoTokenService.mint,
+            validateStreams: true,
+          ).then((PlaybackResolved start) async {
+            // Prefer full-quality selection after mint+extract when not start.
+            if (quality == PlaybackQuality.p360 ||
+                quality == PlaybackQuality.p480) {
+              return start;
+            }
+            final PlaybackResolved? hd = await warmPlaybackHdLadder(
+              ytdlp: ytdlp,
+              url: url,
+              preferredClient: 'mweb',
+              start: start,
+              mintPoTokens: PlaybackPoTokenService.mint,
+            );
+            return hd ?? start;
+          });
     AppLogger.i(
       'playback source=local mode=${local.mode.name} height=${local.height}',
     );
@@ -184,7 +200,7 @@ class PlaybackSourceRouter {
     final PlaybackResolved? hd = await warmPlaybackHdLadder(
       ytdlp: ytdlp,
       url: url,
-      preferredClient: 'android',
+      preferredClient: 'mweb',
       start: start,
       mintPoTokens: PlaybackPoTokenService.mint,
     );

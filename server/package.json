@@ -4,7 +4,8 @@
   "workspaces": [
     "packages/*",
     "apps/*",
-    "workers/*"
+    "workers/extractor",
+    "workers/downloader"
   ],
   "scripts": {
     "build": "npm run build -w @yxz/shared && npm run build -w @yxz/extractor && npm run build -w @yxz/api && npm run build -w @yxz/downloader",

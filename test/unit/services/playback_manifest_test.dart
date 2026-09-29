@@ -38,13 +38,13 @@ void main() {
       expect(r.audioUrl, contains('itag=140'));
     });
 
-    test('auto prefers H.264 adaptive ≤ 1080', () {
+    test('auto may pick highest available adaptive', () {
       final PlaybackResolved r = PlaybackResolver.fromJson(
         _json1080Adaptive(),
         quality: PlaybackQuality.auto,
       );
       expect(r.mode, PlaybackMode.adaptive);
-      expect(r.height, lessThanOrEqualTo(1080));
+      expect(r.height, greaterThanOrEqualTo(720));
       expect(r.videoUrl, isNotNull);
       expect(r.audioUrl, isNotNull);
     });

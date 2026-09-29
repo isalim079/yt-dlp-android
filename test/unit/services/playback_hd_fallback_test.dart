@@ -26,10 +26,13 @@ void main() {
   });
 
   group('resolvePlaybackStart', () {
-    test('tries default clients first', () async {
-      final _FakeYtdlp ytdlp = _FakeYtdlp(<String, String>{
-        'default': _payload360(),
-      });
+    test('tries web_safari then default', () async {
+      final _FakeYtdlp ytdlp = _FakeYtdlp(
+        <String, String>{
+          'default': _payload360(),
+        },
+        emptyClients: <String>{'web_safari'},
+      );
 
       final PlaybackResolved resolved = await resolvePlaybackStart(
         ytdlp: ytdlp,
@@ -37,7 +40,8 @@ void main() {
         forceRefresh: false,
       );
 
-      expect(ytdlp.clients.first, 'default');
+      expect(ytdlp.clients.first, 'web_safari');
+      expect(ytdlp.clients, contains('default'));
       expect(resolved.height, 360);
     });
 
@@ -46,7 +50,7 @@ void main() {
         <String, String>{
           'android': _payload360(),
         },
-        emptyClients: <String>{'default'},
+        emptyClients: <String>{'web_safari', 'default'},
       );
 
       final PlaybackResolved resolved = await resolvePlaybackStart(
@@ -59,13 +63,16 @@ void main() {
       expect(resolved.isPlayable, isTrue);
     });
 
-    test('mwebWithPot only when mint complete', () async {
-      final _FakeYtdlp ytdlp = _FakeYtdlp(<String, String>{
-        'default': _payload360(),
-        'mweb': _payloadFullLadder(),
-      });
+    test('web_safari before mweb when mint complete', () async {
+      final _FakeYtdlp ytdlp = _FakeYtdlp(
+        <String, String>{
+          'web_safari': _payloadHls(),
+          'default': _payload360(),
+          'mweb': _payloadFullLadder(),
+        },
+      );
 
-      await resolvePlaybackStart(
+      final PlaybackResolved resolved = await resolvePlaybackStart(
         ytdlp: ytdlp,
         url: 'https://www.youtube.com/watch?v=WA2Jhud25I8',
         forceRefresh: false,
@@ -76,9 +83,9 @@ void main() {
         ),
       );
 
-      // default succeeds first — mweb not required
-      expect(ytdlp.clients.first, 'default');
-      expect(ytdlp.clients, isNot(contains('mweb')));
+      expect(ytdlp.invalidateCalls, greaterThan(0));
+      expect(ytdlp.clients.first, 'web_safari');
+      expect(resolved.mode, PlaybackMode.hls);
     });
 
     test('uses mwebWithPot when earlier strategies fail', () async {
@@ -86,7 +93,7 @@ void main() {
         <String, String>{
           'mweb': _payloadFullLadder(),
         },
-        emptyClients: <String>{'default', 'android'},
+        emptyClients: <String>{'web_safari', 'default', 'android'},
       );
 
       final PlaybackResolved resolved = await resolvePlaybackStart(
@@ -101,6 +108,8 @@ void main() {
       );
 
       expect(ytdlp.clients, contains('mweb'));
+      expect(ytdlp.poTokens.first, contains('mweb.player+'));
+      expect(ytdlp.poTokens.first, contains('mweb.gvs+'));
       expect(ytdlp.visitorData, isNotEmpty);
       expect(playbackMaxAvailableHeight(resolved), 2160);
     });
@@ -124,9 +133,12 @@ void main() {
     });
 
     test('does not fail solely because exact 360 is missing', () async {
-      final _FakeYtdlp ytdlp = _FakeYtdlp(<String, String>{
-        'default': _payload720Only(),
-      });
+      final _FakeYtdlp ytdlp = _FakeYtdlp(
+        <String, String>{
+          'default': _payload720Only(),
+        },
+        emptyClients: <String>{'web_safari'},
+      );
 
       final PlaybackResolved resolved = await resolvePlaybackStart(
         ytdlp: ytdlp,
@@ -205,6 +217,24 @@ void main() {
           'https://manifest.googlevideo.com/api/manifest/hls_playlist/x.m3u8';
       expect(playbackAppendGvsPot(hls, 'TOKEN'), hls);
     });
+
+    test('does not splice pot onto android GVS urls', () {
+      const String android =
+          'https://rr.googlevideo.com/videoplayback?expire=1&itag=140&c=ANDROID';
+      expect(playbackAppendGvsPot(android, 'TOKEN'), android);
+    });
+  });
+
+  group('PlaybackPoToken.extractorValueFor', () {
+    test('scopes web BotGuard mint to mweb', () {
+      const PlaybackPoToken t = PlaybackPoToken(
+        player: 'P',
+        gvs: 'G',
+        visitorData: 'V',
+      );
+      expect(t.extractorValueFor('mweb'), 'mweb.player+P,mweb.gvs+G');
+      expect(t.extractorValueFor('android'), 'android.player+P,android.gvs+G');
+    });
   });
 }
 
@@ -223,6 +253,15 @@ class _FakeYtdlp extends YtdlpService {
   final List<String> clients = <String>[];
   final List<String> poTokens = <String>[];
   final List<String> visitorData = <String>[];
+  int invalidateCalls = 0;
+
+  @override
+  void invalidatePlaybackCaches(String url) {
+    invalidateCalls += 1;
+  }
+
+  @override
+  void invalidateFormatCache(String url) {}
 
   @override
   Future<PlaybackResolved> resolvePlayback(

@@ -19,6 +19,9 @@ const EnvSchema = z.object({
   PUBLIC_BASE_URL: z.string().default('http://localhost:8080'),
   RATE_LIMIT_MAX: z.coerce.number().default(120),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60_000),
+  /** Internal NewPipe JVM worker base URL (empty = disabled). */
+  NEWPIPE_URL: z.string().default('http://newpipe:8091'),
+  YXZ_PO_PROVIDER_URL: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

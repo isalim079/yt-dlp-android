@@ -99,6 +99,9 @@ class YtdlpService {
   /// No-op on web.
   void invalidateFormatCache(String url) {}
 
+  /// No-op on web.
+  void invalidatePlaybackCaches(String url) {}
+
   /// Always throws [YtdlpException] on web.
   Future<List<VideoFormat>> fetchFormats(
     String url, {

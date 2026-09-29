@@ -130,6 +130,18 @@ class YtdlpService {
     jsonCache.invalidateUrl(url);
   }
 
+  /// Drops JSON + resolved playback caches for [url] (all qualities/clients).
+  void invalidatePlaybackCaches(String url) {
+    invalidateFormatCache(url);
+    final List<String> keys = _playbackCache.keys
+        .where((String k) => k.startsWith('$url|'))
+        .toList(growable: false);
+    for (final String k in keys) {
+      _playbackCache.remove(k);
+    }
+    AppLogger.i('invalidatePlaybackCaches url=$url dropped=${keys.length}');
+  }
+
   static String extractorArgsFor(
     String playerClient, {
     String? poToken,
