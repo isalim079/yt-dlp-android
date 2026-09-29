@@ -19,6 +19,10 @@ class PlaybackPoToken {
   /// Visitor data used as the GVS content binding.
   final String visitorData;
 
+  /// Whether this mint is usable with yt-dlp `mweb` + `visitor_data`.
+  bool get isComplete =>
+      player.isNotEmpty && gvs.isNotEmpty && visitorData.isNotEmpty;
+
   /// yt-dlp `po_token` extractor arg value for `mweb`.
   String get extractorValue => 'mweb.player+$player,mweb.gvs+$gvs';
 }

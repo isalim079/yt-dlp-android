@@ -28,8 +28,9 @@ class YtdlpPlatformChannel {
   /// Fetches metadata/formats payload as raw yt-dlp JSON.
   static Future<String> fetchFormats(
     String url, {
-    String playerClient = 'android,web',
+    String playerClient = 'android',
     String? poToken,
+    String? visitorData,
   }) async {
     final String? json = await _channel.invokeMethod<String>(
       'fetchFormats',
@@ -37,6 +38,8 @@ class YtdlpPlatformChannel {
         'url': url,
         'playerClient': playerClient,
         if (poToken != null && poToken.isNotEmpty) 'poToken': poToken,
+        if (visitorData != null && visitorData.isNotEmpty)
+          'visitorData': visitorData,
       },
     );
     return json ?? '';

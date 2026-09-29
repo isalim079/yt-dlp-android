@@ -72,27 +72,46 @@ class MainActivity : FlutterActivity() {
 
                 "fetchFormats" -> {
                     val url = call.argument<String>("url") ?: ""
-                    val playerClient = call.argument<String>("playerClient") ?: "android,web"
+                    val playerClient = call.argument<String>("playerClient") ?: "default"
                     val poToken = call.argument<String>("poToken")
+                    val visitorData = call.argument<String>("visitorData")
                     scope.launch {
                         try {
+                            val extractorArgs =
+                                youtubeExtractorArgs(playerClient, poToken, visitorData)
+                            Log.i(
+                                "YTDownloader",
+                                "fetchFormats client=$playerClient " +
+                                    "hasPo=${!poToken.isNullOrBlank()} " +
+                                    "hasVisitor=${!visitorData.isNullOrBlank()} " +
+                                    "args=${extractorArgs.take(120)}",
+                            )
                             val request = YoutubeDLRequest(url)
-                            request.addOption("-J")
+                            // Dump metadata only — never ask yt-dlp to download a
+                            // specific format. ignore-no-formats-error returns JSON
+                            // even when the selected client has zero HTTPS URLs.
+                            request.addOption("--dump-single-json")
                             request.addOption("--no-playlist")
                             request.addOption("--no-warnings")
-                            // The selected format ID must come from the same YouTube
-                            // player clients used by the eventual download. Otherwise
-                            // YouTube can return an ID here that is unavailable when
-                            // `download` reruns yt-dlp with android,web clients.
-                            request.addOption(
-                                "--extractor-args",
-                                youtubeExtractorArgs(playerClient, poToken),
-                            )
+                            request.addOption("--ignore-no-formats-error")
+                            request.addOption("--extractor-args", extractorArgs)
                             val response = YoutubeDL.getInstance().execute(request)
+                            val out = response.out
+                            val formatCount = try {
+                                JSONObject(out).optJSONArray("formats")?.length() ?: 0
+                            } catch (_: Exception) {
+                                -1
+                            }
+                            Log.i(
+                                "YTDownloader",
+                                "fetchFormats done formats_found=$formatCount " +
+                                    "outChars=${out.length}",
+                            )
                             withContext(Dispatchers.Main) {
-                                result.success(response.out)
+                                result.success(out)
                             }
                         } catch (e: Exception) {
+                            Log.e("YTDownloader", "fetchFormats failed: ${e.message}")
                             withContext(Dispatchers.Main) {
                                 result.error("FETCH_ERROR", e.message, null)
                             }
@@ -495,10 +514,29 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun youtubeExtractorArgs(playerClient: String, poToken: String? = null): String {
-        val client = playerClient.ifBlank { "android,web" }
-        val base = "youtube:player_client=$client"
+    private fun youtubeExtractorArgs(
+        playerClient: String,
+        poToken: String? = null,
+        visitorData: String? = null,
+    ): String {
+        val client = playerClient.trim()
+        val parts = mutableListOf<String>()
+        // "default" / blank → let yt-dlp pick its built-in YouTube clients.
+        if (client.isNotEmpty() && !client.equals("default", ignoreCase = true)) {
+            parts += "player_client=$client"
+        }
         val token = poToken?.trim().orEmpty()
-        return if (token.isEmpty()) base else "$base;po_token=$token"
+        if (token.isNotEmpty()) {
+            parts += "po_token=$token"
+        }
+        val visitor = visitorData?.trim().orEmpty()
+        if (visitor.isNotEmpty()) {
+            parts += "visitor_data=$visitor"
+        }
+        return if (parts.isEmpty()) {
+            "youtube:"
+        } else {
+            "youtube:" + parts.joinToString(";")
+        }
     }
 }

@@ -238,6 +238,8 @@ abstract final class AppStrings {
       'Could not find a playable stream for this video. Try another quality or player client.';
   static const String errorPlaybackFailed =
       'Playback failed. Retrying with a fallback stream…';
+  static const String errorPlaybackLadderExhausted =
+      'Could not get a playable stream from YouTube. Check your connection, then try again. If it keeps failing, update yt-dlp in Settings.';
   static const String errorExtractionBroken =
       'YouTube changed something and this video could not be extracted. Update yt-dlp in Settings, then try again.';
   static const String errorVideoUnavailable =

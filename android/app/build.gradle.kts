@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.ytdownloader.app"
-    compileSdk = 36
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
 
@@ -19,7 +19,7 @@ android {
     defaultConfig {
         applicationId = "com.ytdownloader.app"
         minSdk = flutter.minSdkVersion
-        targetSdk = 36
+        targetSdk = 37
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true

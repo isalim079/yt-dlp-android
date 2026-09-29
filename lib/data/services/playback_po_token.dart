@@ -65,16 +65,19 @@ abstract final class PlaybackPoTokenService {
       final String player = raw['player']?.toString() ?? '';
       final String gvs = raw['gvs']?.toString() ?? '';
       final String visitorData = raw['visitorData']?.toString() ?? '';
-      if (player.isEmpty || gvs.isEmpty) {
-        AppLogger.w('BotGuard mint missing player or gvs token');
-        return null;
-      }
-      AppLogger.i('BotGuard minted player+GVS PO tokens for $videoId');
-      return PlaybackPoToken(
+      final PlaybackPoToken tokens = PlaybackPoToken(
         player: player,
         gvs: gvs,
         visitorData: visitorData,
       );
+      if (!tokens.isComplete) {
+        AppLogger.w(
+          'BotGuard mint missing player, gvs, or visitorData',
+        );
+        return null;
+      }
+      AppLogger.i('BotGuard minted player+GVS PO tokens for $videoId');
+      return tokens;
     } on Object catch (error, stack) {
       AppLogger.w('BotGuard mint failed: $error\n$stack');
       return null;

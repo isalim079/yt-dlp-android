@@ -84,14 +84,28 @@ class YtdlpService {
     return args;
   }
 
-  static String extractorArgsFor(String playerClient, {String? poToken}) {
-    final String client =
-        playerClient.trim().isEmpty ? 'android,web' : playerClient.trim();
-    final String token = poToken?.trim() ?? '';
-    if (token.isEmpty) {
-      return 'youtube:player_client=$client';
+  static String extractorArgsFor(
+    String playerClient, {
+    String? poToken,
+    String? visitorData,
+  }) {
+    final String client = playerClient.trim();
+    final List<String> parts = <String>[];
+    if (client.isNotEmpty && client.toLowerCase() != 'default') {
+      parts.add('player_client=$client');
     }
-    return 'youtube:player_client=$client;po_token=$token';
+    final String token = poToken?.trim() ?? '';
+    if (token.isNotEmpty) {
+      parts.add('po_token=$token');
+    }
+    final String visitor = visitorData?.trim() ?? '';
+    if (visitor.isNotEmpty) {
+      parts.add('visitor_data=$visitor');
+    }
+    if (parts.isEmpty) {
+      return 'youtube:';
+    }
+    return 'youtube:${parts.join(';')}';
   }
 
   static final PlaybackJsonCache jsonCache = PlaybackJsonCache();
@@ -116,7 +130,7 @@ class YtdlpService {
   /// Throws [YtdlpException] on failure.
   Future<List<VideoFormat>> fetchFormats(
     String url, {
-    String playerClient = 'android,web',
+    String playerClient = 'android',
   }) async {
     try {
       final String json = await _ensureSingleVideoJson(
@@ -143,7 +157,7 @@ class YtdlpService {
   /// within this service instance (no second `-J` process).
   Future<VideoInfo> fetchVideoInfo(
     String url, {
-    String playerClient = 'android,web',
+    String playerClient = 'android',
   }) async {
     try {
       final String json = await _ensureSingleVideoJson(
@@ -163,14 +177,15 @@ class YtdlpService {
   Future<PlaybackResolved> resolvePlayback(
     String url, {
     PlaybackQuality quality = PlaybackQuality.auto,
-    String playerClient = 'android,web',
+    String playerClient = 'android',
     bool forceRefresh = false,
     String? poToken,
+    String? visitorData,
   }) async {
     try {
       _validateUrl(url);
       final String resolvedKey =
-          '$url|${quality.name}|$playerClient|${poToken ?? ''}';
+          '$url|${quality.name}|$playerClient|${poToken ?? ''}|${visitorData ?? ''}';
       if (!forceRefresh) {
         final PlaybackResolved? cached = _playbackCache[resolvedKey];
         if (cached != null && !cached.isExpired) {
@@ -182,10 +197,18 @@ class YtdlpService {
         playerClient: playerClient,
         forceRefresh: forceRefresh,
         poToken: poToken,
+        visitorData: visitorData,
       );
       PlaybackResolved resolved = PlaybackResolver.fromJson(
         json,
         quality: quality,
+      );
+      AppLogger.i(
+        'resolvePlayback client=$playerClient quality=${quality.name} '
+        'mode=${resolved.mode.name} height=${resolved.height} '
+        'heights=${resolved.availableHeights.length} '
+        'hasPo=${poToken != null && poToken.isNotEmpty} '
+        'hasVisitor=${visitorData != null && visitorData.isNotEmpty}',
       );
       if (!forceRefresh && resolved.isExpired) {
         json = await _ensureSingleVideoJson(
@@ -193,6 +216,7 @@ class YtdlpService {
           playerClient: playerClient,
           forceRefresh: true,
           poToken: poToken,
+          visitorData: visitorData,
         );
         resolved = PlaybackResolver.fromJson(json, quality: quality);
       }
@@ -397,12 +421,16 @@ class YtdlpService {
   /// Quality is not part of the cache key; callers re-parse the same body.
   Future<String> _ensureSingleVideoJson(
     String url, {
-    String playerClient = 'android,web',
+    String playerClient = 'android',
     bool forceRefresh = false,
     String? poToken,
+    String? visitorData,
   }) async {
-    final String cacheClient =
-        (poToken == null || poToken.isEmpty) ? playerClient : '$playerClient|pot';
+    final bool hasPo = poToken != null && poToken.isNotEmpty;
+    final bool hasVisitor = visitorData != null && visitorData.isNotEmpty;
+    final String cacheClient = !hasPo && !hasVisitor
+        ? playerClient
+        : '$playerClient|pot|${hasVisitor ? 'v' : ''}';
     if (!forceRefresh) {
       final String? cached = jsonCache.read(url, cacheClient);
       if (cached != null) {
@@ -415,6 +443,7 @@ class YtdlpService {
       url,
       playerClient: playerClient,
       poToken: poToken,
+      visitorData: visitorData,
     );
     jsonCache.put(url, cacheClient, body);
     return body;
@@ -424,6 +453,7 @@ class YtdlpService {
     String url, {
     required String playerClient,
     String? poToken,
+    String? visitorData,
   }) async {
     _validateUrl(url);
     final Future<String> Function(String url, String playerClient)? hook =
@@ -437,14 +467,20 @@ class YtdlpService {
         url,
         playerClient: playerClient,
         poToken: poToken,
+        visitorData: visitorData,
       ).timeout(const Duration(seconds: 90));
     } else {
       final _YtdlpResult result = await _runProcess(<String>[
-        '-J',
+        '--dump-single-json',
         '--no-playlist',
         '--no-warnings',
+        '--ignore-no-formats-error',
         '--extractor-args',
-        extractorArgsFor(playerClient, poToken: poToken),
+        extractorArgsFor(
+          playerClient,
+          poToken: poToken,
+          visitorData: visitorData,
+        ),
         url,
       ], timeout: const Duration(seconds: 90));
       if (!result.isSuccess) {
@@ -478,10 +514,19 @@ class YtdlpService {
       return YtdlpException(AppStrings.errorForbidden, originalError: error);
     }
 
+    if (lower.contains('requested format is not available')) {
+      // Exact height/format selector miss — not a permanent YouTube break.
+      return YtdlpException(
+        AppStrings.errorNoPlaybackStreams,
+        originalError: error,
+      );
+    }
+
     if (lower.contains('sabr') ||
-        lower.contains('requested format is not available') ||
         lower.contains('nsig') ||
-        lower.contains('signature')) {
+        lower.contains('signature') ||
+        lower.contains('javascript runtime') ||
+        lower.contains('js runtime')) {
       return YtdlpException(
         AppStrings.errorExtractionBroken,
         originalError: error,

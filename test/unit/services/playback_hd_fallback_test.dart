@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yxz_tube/core/constants/app_strings.dart';
 import 'package:yxz_tube/core/exceptions/ytdlp_exception.dart';
 import 'package:yxz_tube/data/models/playback_po_token.dart';
 import 'package:yxz_tube/data/models/playback_resolved.dart';
@@ -9,55 +10,153 @@ import 'package:yxz_tube/data/services/playback_resolver.dart';
 import 'package:yxz_tube/data/services/ytdlp_service.dart';
 
 void main() {
+  group('playbackUrlIsAndroidVr', () {
+    test('detects ANDROID_VR client stamp', () {
+      expect(
+        playbackUrlIsAndroidVr(
+          'https://rr.googlevideo.com/videoplayback?itag=18&c=ANDROID_VR',
+        ),
+        isTrue,
+      );
+      expect(
+        playbackUrlIsAndroidVr(
+          'https://rr.googlevideo.com/videoplayback?itag=18&c=ANDROID',
+        ),
+        isFalse,
+      );
+    });
+  });
+
+  group('playbackSanitizeAndroidVr', () {
+    test('prefers HLS when progressive is ANDROID_VR', () {
+      final PlaybackResolved mixed = PlaybackResolver.fromJson(
+        _payloadVrProgressiveWithHls(),
+        quality: PlaybackQuality.auto,
+      );
+      final PlaybackResolved clean = playbackSanitizeAndroidVr(mixed);
+      expect(clean.mode, PlaybackMode.hls);
+      expect(playbackUrlIsAndroidVr(clean.primaryUrl), isFalse);
+    });
+  });
+
   group('resolvePlaybackStart', () {
-    test('uses only the preferred client and returns 360', () async {
+    test('poMwebBundle first returns progressive when formats exist', () async {
       final _FakeYtdlp ytdlp = _FakeYtdlp(<String, String>{
-        'android,web': _payload360(),
-        kPlaybackHdFallbackClient: _payloadFullLadder(),
+        extractionPlayerClient(ExtractionStrategy.poMwebBundle): _payload360(),
       });
 
       final PlaybackResolved resolved = await resolvePlaybackStart(
         ytdlp: ytdlp,
-        url: 'https://www.youtube.com/watch?v=sRWcJrMTtMI',
-        preferredClient: 'android,web',
+        url: 'https://www.youtube.com/watch?v=WA2Jhud25I8',
+        forceRefresh: false,
+        mintPoTokens: (String videoId) async {
+          return const PlaybackPoToken(
+            player: 'PLAYERTOKEN',
+            gvs: 'GVSTOKEN',
+            visitorData: 'VISITOR',
+          );
+        },
+      );
+
+      expect(
+        ytdlp.clients.first,
+        extractionPlayerClient(ExtractionStrategy.poMwebBundle),
+      );
+      expect(ytdlp.visitorData.single, 'VISITOR');
+      expect(resolved.progressiveUrl, isNotNull);
+      expect(resolved.height, 360);
+    });
+
+    test('falls through strategies when PO extract has no formats', () async {
+      final _FakeYtdlp ytdlp = _FakeYtdlp(
+        <String, String>{
+          extractionPlayerClient(ExtractionStrategy.httpsFallback):
+              _payloadHls(),
+        },
+        emptyClients: <String>{
+          extractionPlayerClient(ExtractionStrategy.poMwebBundle),
+          extractionPlayerClient(ExtractionStrategy.defaultClients),
+        },
+      );
+
+      final PlaybackResolved resolved = await resolvePlaybackStart(
+        ytdlp: ytdlp,
+        url: 'https://www.youtube.com/watch?v=WA2Jhud25I8',
+        forceRefresh: false,
+        mintPoTokens: (String videoId) async {
+          return const PlaybackPoToken(
+            player: 'P',
+            gvs: 'G',
+            visitorData: 'V',
+          );
+        },
+      );
+
+      expect(resolved.mode, PlaybackMode.hls);
+      expect(
+        ytdlp.clients,
+        contains(extractionPlayerClient(ExtractionStrategy.httpsFallback)),
+      );
+    });
+
+    test('does not fail solely because exact 360 is missing', () async {
+      final _FakeYtdlp ytdlp = _FakeYtdlp(<String, String>{
+        extractionPlayerClient(ExtractionStrategy.defaultClients):
+            _payload720Only(),
+      });
+
+      final PlaybackResolved resolved = await resolvePlaybackStart(
+        ytdlp: ytdlp,
+        url: 'https://www.youtube.com/watch?v=WA2Jhud25I8',
         forceRefresh: false,
       );
 
-      expect(ytdlp.clients, <String>['android,web']);
-      expect(resolved.height, 360);
-      expect(resolved.progressiveUrl, isNotNull);
+      expect(resolved.isPlayable, isTrue);
+      expect(resolved.height, 720);
+    });
+
+    test('throws ladder exhausted when all strategies fail', () async {
+      final _FakeYtdlp ytdlp = _FakeYtdlp(<String, String>{});
+
+      expect(
+        () => resolvePlaybackStart(
+          ytdlp: ytdlp,
+          url: 'https://www.youtube.com/watch?v=WA2Jhud25I8',
+          forceRefresh: false,
+        ),
+        throwsA(
+          isA<YtdlpException>().having(
+            (YtdlpException e) => e.message,
+            'message',
+            AppStrings.errorPlaybackLadderExhausted,
+          ),
+        ),
+      );
+    });
+
+    test('treats format-not-available as try-next-strategy', () async {
+      final _FakeYtdlp ytdlp = _FakeYtdlp(
+        <String, String>{
+          extractionPlayerClient(ExtractionStrategy.httpsFallback):
+              _payloadHls(),
+        },
+        failClients: <String>{
+          extractionPlayerClient(ExtractionStrategy.defaultClients),
+        },
+        failMessage: 'Requested format is not available',
+      );
+
+      final PlaybackResolved resolved = await resolvePlaybackStart(
+        ytdlp: ytdlp,
+        url: 'https://www.youtube.com/watch?v=WA2Jhud25I8',
+        forceRefresh: false,
+      );
+
+      expect(resolved.hlsUrl, isNotNull);
     });
   });
 
-  group('warmPlaybackHdLadder', () {
-    test('loads android_vr after 360 start and does not reopen via callback',
-        () async {
-      final _FakeYtdlp ytdlp = _FakeYtdlp(<String, String>{
-        'android,web': _payload360(),
-        kPlaybackHdFallbackClient: _payloadFullLadder(),
-      });
-      final PlaybackResolved start = await resolvePlaybackStart(
-        ytdlp: ytdlp,
-        url: 'https://www.youtube.com/watch?v=sRWcJrMTtMI',
-        preferredClient: 'android,web',
-        forceRefresh: false,
-      );
-
-      final PlaybackResolved? hd = await warmPlaybackHdLadder(
-        ytdlp: ytdlp,
-        url: 'https://www.youtube.com/watch?v=sRWcJrMTtMI',
-        preferredClient: 'android,web',
-        start: start,
-      );
-
-      expect(ytdlp.clients, <String>['android,web', kPlaybackHdFallbackClient]);
-      expect(hd, isNotNull);
-      expect(playbackMaxAvailableHeight(hd!), 2160);
-      expect(hd.offersQuality(PlaybackQuality.p1080), isTrue);
-      expect(hd.progressiveUrl, start.progressiveUrl);
-      expect(start.height, 360);
-    });
-
+  group('playbackKeepStartProgressive', () {
     test('keeps muxed 360 when HD JSON has no progressive URL', () {
       final PlaybackResolved start = PlaybackResolver.fromJson(
         _payload360(),
@@ -74,14 +173,14 @@ void main() {
       expect(merged.progressiveUrl, start.progressiveUrl);
       expect(playbackMaxAvailableHeight(merged), 2160);
     });
+  });
 
-    test('skips mweb when android_vr already has HD', () async {
+  group('warmPlaybackHdLadder', () {
+    test('mweb bundle + visitor unlocks HD and keeps start progressive', () async {
       final _FakeYtdlp ytdlp = _FakeYtdlp(<String, String>{
-        'android,web': _payload360(),
-        kPlaybackHdFallbackClient: _payloadFullLadder(),
-        kPlaybackMwebClient: _payloadFullLadder(),
+        extractionPlayerClient(ExtractionStrategy.poMwebBundle):
+            _payloadFullLadder(),
       });
-      int mints = 0;
       final PlaybackResolved start = PlaybackResolver.fromJson(
         _payload360(),
         quality: PlaybackQuality.p360,
@@ -89,39 +188,10 @@ void main() {
 
       final PlaybackResolved? hd = await warmPlaybackHdLadder(
         ytdlp: ytdlp,
-        url: 'https://www.youtube.com/watch?v=sRWcJrMTtMI',
-        preferredClient: 'android,web',
+        url: 'https://www.youtube.com/watch?v=WA2Jhud25I8',
+        preferredClient: kPlaybackStartClient,
         start: start,
         mintPoTokens: (String videoId) async {
-          mints += 1;
-          return null;
-        },
-      );
-
-      expect(mints, 0);
-      expect(ytdlp.clients, <String>[kPlaybackHdFallbackClient]);
-      expect(playbackMaxAvailableHeight(hd!), 2160);
-    });
-
-    test('mweb+PO runs only after VR still has no HD', () async {
-      final _FakeYtdlp ytdlp = _FakeYtdlp(<String, String>{
-        kPlaybackHdFallbackClient: _payload360(),
-        kPlaybackMwebClient: _payloadFullLadder(),
-      });
-      int mints = 0;
-      final PlaybackResolved start = PlaybackResolver.fromJson(
-        _payload360(),
-        quality: PlaybackQuality.p360,
-      );
-
-      final PlaybackResolved? hd = await warmPlaybackHdLadder(
-        ytdlp: ytdlp,
-        url: 'https://www.youtube.com/watch?v=sRWcJrMTtMI',
-        preferredClient: 'android,web',
-        start: start,
-        mintPoTokens: (String videoId) async {
-          mints += 1;
-          expect(videoId, 'sRWcJrMTtMI');
           return const PlaybackPoToken(
             player: 'PLAYERTOKEN',
             gvs: 'GVSTOKEN',
@@ -130,74 +200,51 @@ void main() {
         },
       );
 
-      expect(mints, 1);
-      expect(
-        ytdlp.clients.toSet(),
-        <String>{kPlaybackHdFallbackClient, kPlaybackMwebClient},
-      );
-      expect(ytdlp.poTokens.single, contains('mweb.player+PLAYERTOKEN'));
+      expect(ytdlp.visitorData.single, 'VISITOR');
+      expect(hd, isNotNull);
       expect(playbackMaxAvailableHeight(hd!), 2160);
-    });
-
-    test('returns null when VR fails and start stays 360', () async {
-      final _FakeYtdlp ytdlp = _FakeYtdlp(<String, String>{
-        'android,web': _payload360(),
-      });
-      final PlaybackResolved start = PlaybackResolver.fromJson(
-        _payload360(),
-        quality: PlaybackQuality.p360,
-      );
-
-      final PlaybackResolved? hd = await warmPlaybackHdLadder(
-        ytdlp: ytdlp,
-        url: 'https://www.youtube.com/watch?v=sRWcJrMTtMI',
-        preferredClient: 'android,web',
-        start: start,
-      );
-
-      expect(hd, isNull);
-    });
-
-    test('does not retry VR when start client is already android_vr', () async {
-      final _FakeYtdlp ytdlp = _FakeYtdlp(<String, String>{
-        kPlaybackHdFallbackClient: _payload360(),
-      });
-      final PlaybackResolved start = PlaybackResolver.fromJson(
-        _payload360(),
-        quality: PlaybackQuality.p360,
-      );
-
-      final PlaybackResolved? hd = await warmPlaybackHdLadder(
-        ytdlp: ytdlp,
-        url: 'https://www.youtube.com/watch?v=sRWcJrMTtMI',
-        preferredClient: kPlaybackHdFallbackClient,
-        start: start,
-      );
-
-      expect(ytdlp.clients, isEmpty);
-      expect(hd, isNull);
+      expect(hd.progressiveUrl, start.progressiveUrl);
     });
   });
 }
 
 class _FakeYtdlp extends YtdlpService {
-  _FakeYtdlp(this._jsonByClient) : super(binaryPath: '/mock/yt-dlp');
+  _FakeYtdlp(
+    this._jsonByClient, {
+    this.failClients = const <String>{},
+    this.emptyClients = const <String>{},
+    this.failMessage = 'client failed',
+  }) : super(binaryPath: '/mock/yt-dlp');
 
   final Map<String, String> _jsonByClient;
+  final Set<String> failClients;
+  final Set<String> emptyClients;
+  final String failMessage;
   final List<String> clients = <String>[];
   final List<String> poTokens = <String>[];
+  final List<String> visitorData = <String>[];
 
   @override
   Future<PlaybackResolved> resolvePlayback(
     String url, {
     PlaybackQuality quality = PlaybackQuality.auto,
-    String playerClient = 'android,web',
+    String playerClient = 'android',
     bool forceRefresh = false,
     String? poToken,
+    String? visitorData,
   }) async {
     clients.add(playerClient);
     if (poToken != null) {
       poTokens.add(poToken);
+    }
+    if (visitorData != null) {
+      this.visitorData.add(visitorData);
+    }
+    if (failClients.contains(playerClient)) {
+      throw YtdlpException(failMessage);
+    }
+    if (emptyClients.contains(playerClient)) {
+      throw const YtdlpException(AppStrings.errorNoPlaybackStreams);
     }
     final String? json = _jsonByClient[playerClient];
     if (json == null) {
@@ -210,20 +257,100 @@ class _FakeYtdlp extends YtdlpService {
 String _payload360() {
   return jsonEncode(<String, dynamic>{
     'title': 'Demo',
-    'webpage_url': 'https://www.youtube.com/watch?v=sRWcJrMTtMI',
-    'thumbnail': 'https://i.ytimg.com/vi/sRWcJrMTtMI/hqdefault.jpg',
+    'webpage_url': 'https://www.youtube.com/watch?v=WA2Jhud25I8',
+    'thumbnail': 'https://i.ytimg.com/vi/WA2Jhud25I8/hqdefault.jpg',
     'duration': 100,
     'uploader': 'Channel',
     'formats': <Map<String, dynamic>>[
       <String, dynamic>{
         'format_id': '18',
         'ext': 'mp4',
-        'url': 'https://rr.googlevideo.com/videoplayback?expire=1999999999&itag=18',
+        'url':
+            'https://rr.googlevideo.com/videoplayback?expire=1999999999&itag=18&c=ANDROID',
         'height': 360,
         'vcodec': 'avc1',
         'acodec': 'mp4a.40.2',
         'tbr': 500,
         'protocol': 'https',
+      },
+    ],
+  });
+}
+
+String _payload720Only() {
+  return jsonEncode(<String, dynamic>{
+    'title': 'Demo',
+    'webpage_url': 'https://www.youtube.com/watch?v=WA2Jhud25I8',
+    'thumbnail': 'https://i.ytimg.com/vi/WA2Jhud25I8/hqdefault.jpg',
+    'duration': 100,
+    'uploader': 'Channel',
+    'formats': <Map<String, dynamic>>[
+      <String, dynamic>{
+        'format_id': '22',
+        'ext': 'mp4',
+        'url':
+            'https://rr.googlevideo.com/videoplayback?expire=1999999999&itag=22&c=WEB',
+        'height': 720,
+        'vcodec': 'avc1',
+        'acodec': 'mp4a.40.2',
+        'tbr': 2000,
+        'protocol': 'https',
+      },
+    ],
+  });
+}
+
+String _payloadHls() {
+  return jsonEncode(<String, dynamic>{
+    'title': 'Demo',
+    'webpage_url': 'https://www.youtube.com/watch?v=WA2Jhud25I8',
+    'thumbnail': 'https://i.ytimg.com/vi/WA2Jhud25I8/hqdefault.jpg',
+    'duration': 100,
+    'uploader': 'Channel',
+    'manifest_url':
+        'https://manifest.googlevideo.com/api/manifest/hls_variant/expire/1999999999/master.m3u8',
+    'formats': <Map<String, dynamic>>[
+      <String, dynamic>{
+        'format_id': '96',
+        'ext': 'mp4',
+        'url':
+            'https://manifest.googlevideo.com/api/manifest/hls_playlist/expire/1999999999/playlist.m3u8',
+        'protocol': 'm3u8_native',
+        'vcodec': 'none',
+        'acodec': 'none',
+      },
+    ],
+  });
+}
+
+String _payloadVrProgressiveWithHls() {
+  return jsonEncode(<String, dynamic>{
+    'title': 'Demo',
+    'webpage_url': 'https://www.youtube.com/watch?v=WA2Jhud25I8',
+    'thumbnail': 'https://i.ytimg.com/vi/WA2Jhud25I8/hqdefault.jpg',
+    'duration': 100,
+    'uploader': 'Channel',
+    'manifest_url':
+        'https://manifest.googlevideo.com/api/manifest/hls_variant/expire/1999999999/master.m3u8',
+    'formats': <Map<String, dynamic>>[
+      <String, dynamic>{
+        'format_id': '18',
+        'ext': 'mp4',
+        'url':
+            'https://rr.googlevideo.com/videoplayback?expire=1999999999&itag=18&c=ANDROID_VR',
+        'height': 360,
+        'vcodec': 'avc1',
+        'acodec': 'mp4a.40.2',
+        'protocol': 'https',
+      },
+      <String, dynamic>{
+        'format_id': '96',
+        'ext': 'mp4',
+        'url':
+            'https://manifest.googlevideo.com/api/manifest/hls_playlist/expire/1999999999/playlist.m3u8',
+        'protocol': 'm3u8_native',
+        'vcodec': 'none',
+        'acodec': 'none',
       },
     ],
   });
@@ -250,8 +377,8 @@ String _payloadFullLadder() {
 
   return jsonEncode(<String, dynamic>{
     'title': 'Demo',
-    'webpage_url': 'https://www.youtube.com/watch?v=sRWcJrMTtMI',
-    'thumbnail': 'https://i.ytimg.com/vi/sRWcJrMTtMI/hqdefault.jpg',
+    'webpage_url': 'https://www.youtube.com/watch?v=WA2Jhud25I8',
+    'thumbnail': 'https://i.ytimg.com/vi/WA2Jhud25I8/hqdefault.jpg',
     'duration': 100,
     'uploader': 'Channel',
     'formats': <Map<String, dynamic>>[

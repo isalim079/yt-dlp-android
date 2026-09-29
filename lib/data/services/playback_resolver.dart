@@ -64,6 +64,25 @@ abstract final class PlaybackResolver {
     final _Picked? audio = _pickAudioOnly(formats);
     final _Picked? progressive = _pickProgressive(formats, quality);
 
+    // Prefer muxed progressive for low-quality start (faster first open).
+    // Do not prefer a low progressive over taller adaptive for HD/Auto.
+    if (progressive != null &&
+        (quality == PlaybackQuality.p360 || quality == PlaybackQuality.p480) &&
+        progressive.height <= (quality.maxHeight ?? progressive.height)) {
+      return PlaybackResolved(
+        info: info,
+        mode: PlaybackMode.progressive,
+        headers: headers,
+        quality: quality,
+        progressiveUrl: progressive.url,
+        hlsUrl: hls,
+        height: progressive.height,
+        expiresAt: _expireOf(progressive.url),
+        formatId: progressive.formatId,
+        availableHeights: availableHeights,
+      );
+    }
+
     if (video != null && audio != null) {
       return PlaybackResolved(
         info: info,
@@ -143,7 +162,11 @@ abstract final class PlaybackResolver {
     List<Map<String, dynamic>> formats,
     PlaybackQuality quality,
   ) {
-    final int? maxH = quality.maxHeight;
+    final List<_Picked> all = _collectVideoOnly(formats);
+    return _selectByQuality(all, quality);
+  }
+
+  static List<_Picked> _collectVideoOnly(List<Map<String, dynamic>> formats) {
     final List<_Picked> candidates = <_Picked>[];
     for (final Map<String, dynamic> row in formats) {
       if (!_hasDirectUrl(row)) {
@@ -161,9 +184,6 @@ abstract final class PlaybackResolver {
         continue;
       }
       final int height = _readInt(row['height']) ?? 0;
-      if (maxH != null && height > maxH) {
-        continue;
-      }
       if (height <= 0) {
         continue;
       }
@@ -178,7 +198,7 @@ abstract final class PlaybackResolver {
         ),
       );
     }
-    return _bestVideo(candidates, quality);
+    return candidates;
   }
 
   static _Picked? _pickAudioOnly(List<Map<String, dynamic>> formats) {
@@ -222,7 +242,11 @@ abstract final class PlaybackResolver {
     List<Map<String, dynamic>> formats,
     PlaybackQuality quality,
   ) {
-    final int? maxH = quality.maxHeight;
+    final List<_Picked> all = _collectProgressive(formats);
+    return _selectByQuality(all, quality);
+  }
+
+  static List<_Picked> _collectProgressive(List<Map<String, dynamic>> formats) {
     final List<_Picked> candidates = <_Picked>[];
     for (final Map<String, dynamic> row in formats) {
       if (!_hasDirectUrl(row)) {
@@ -240,7 +264,7 @@ abstract final class PlaybackResolver {
         continue;
       }
       final int height = _readInt(row['height']) ?? 0;
-      if (maxH != null && height > maxH) {
+      if (height <= 0) {
         continue;
       }
       candidates.add(
@@ -254,7 +278,40 @@ abstract final class PlaybackResolver {
         ),
       );
     }
-    return _bestVideo(candidates, quality);
+    return candidates;
+  }
+
+  /// Prefer highest ≤ requested height; if none, lowest above (never fail on
+  /// a missing exact resolution when any playable height exists).
+  static _Picked? _selectByQuality(
+    List<_Picked> all,
+    PlaybackQuality quality,
+  ) {
+    if (all.isEmpty) {
+      return null;
+    }
+    final int? maxH = quality.maxHeight;
+    if (maxH == null) {
+      return _bestVideo(all, quality);
+    }
+    final List<_Picked> atOrBelow =
+        all.where((_Picked p) => p.height <= maxH).toList();
+    if (atOrBelow.isNotEmpty) {
+      return _bestVideo(atOrBelow, quality);
+    }
+    final List<_Picked> above =
+        all.where((_Picked p) => p.height > maxH).toList();
+    if (above.isEmpty) {
+      return null;
+    }
+    above.sort((_Picked a, _Picked b) {
+      final int heightCmp = a.height.compareTo(b.height);
+      if (heightCmp != 0) {
+        return heightCmp;
+      }
+      return _bestVideo(<_Picked>[a, b], quality) == a ? -1 : 1;
+    });
+    return above.first;
   }
 
   /// Prefers H.264 at or under 1080p for Auto so 4K AV1/HDR does not black-screen.

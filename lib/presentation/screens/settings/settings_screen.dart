@@ -99,7 +99,7 @@ class SettingsScreen extends ConsumerWidget {
           subtitle: settings.outputPath,
           trailing: const Icon(Icons.chevron_right_rounded),
           onTap: () async {
-            final String? picked = await FilePicker.platform.getDirectoryPath();
+            final String? picked = await FilePicker.getDirectoryPath();
             if (picked == null) {
               return;
             }

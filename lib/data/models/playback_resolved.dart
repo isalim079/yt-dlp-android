@@ -102,9 +102,10 @@ class PlaybackResolved {
   /// Distinct video heights in the JSON that have a direct HTTP URL.
   final List<int> availableHeights;
 
-  /// Copy with overrides.
+  /// Copy with overrides. Pass empty [progressiveUrl] to clear.
   PlaybackResolved copyWith({
     String? progressiveUrl,
+    bool clearProgressive = false,
   }) {
     return PlaybackResolved(
       info: info,
@@ -113,7 +114,8 @@ class PlaybackResolved {
       quality: quality,
       videoUrl: videoUrl,
       audioUrl: audioUrl,
-      progressiveUrl: progressiveUrl ?? this.progressiveUrl,
+      progressiveUrl:
+          clearProgressive ? null : (progressiveUrl ?? this.progressiveUrl),
       hlsUrl: hlsUrl,
       height: height,
       expiresAt: expiresAt,

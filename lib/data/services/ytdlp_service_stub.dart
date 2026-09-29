@@ -31,14 +31,28 @@ class YtdlpService {
   }
 
   /// Mirrors the IO extractor-args builder so tests compile on every target.
-  static String extractorArgsFor(String playerClient, {String? poToken}) {
-    final String client =
-        playerClient.trim().isEmpty ? 'android,web' : playerClient.trim();
-    final String token = poToken?.trim() ?? '';
-    if (token.isEmpty) {
-      return 'youtube:player_client=$client';
+  static String extractorArgsFor(
+    String playerClient, {
+    String? poToken,
+    String? visitorData,
+  }) {
+    final String client = playerClient.trim();
+    final List<String> parts = <String>[];
+    if (client.isNotEmpty && client.toLowerCase() != 'default') {
+      parts.add('player_client=$client');
     }
-    return 'youtube:player_client=$client;po_token=$token';
+    final String token = poToken?.trim() ?? '';
+    if (token.isNotEmpty) {
+      parts.add('po_token=$token');
+    }
+    final String visitor = visitorData?.trim() ?? '';
+    if (visitor.isNotEmpty) {
+      parts.add('visitor_data=$visitor');
+    }
+    if (parts.isEmpty) {
+      return 'youtube:';
+    }
+    return 'youtube:${parts.join(';')}';
   }
 
   /// Stubbed download args builder for non-IO platforms.
@@ -59,7 +73,7 @@ class YtdlpService {
   /// Always throws [YtdlpException] on web.
   Future<List<VideoFormat>> fetchFormats(
     String url, {
-    String playerClient = 'android,web',
+    String playerClient = 'android',
   }) async {
     throw const YtdlpException(AppStrings.errorUnknown);
   }
@@ -67,7 +81,7 @@ class YtdlpService {
   /// Always throws [YtdlpException] on web.
   Future<VideoInfo> fetchVideoInfo(
     String url, {
-    String playerClient = 'android,web',
+    String playerClient = 'android',
   }) async {
     throw const YtdlpException(AppStrings.errorUnknown);
   }
@@ -76,9 +90,10 @@ class YtdlpService {
   Future<PlaybackResolved> resolvePlayback(
     String url, {
     PlaybackQuality quality = PlaybackQuality.auto,
-    String playerClient = 'android,web',
+    String playerClient = 'android',
     bool forceRefresh = false,
     String? poToken,
+    String? visitorData,
   }) async {
     throw const YtdlpException(AppStrings.errorUnknown);
   }
