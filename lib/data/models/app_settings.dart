@@ -23,6 +23,9 @@ class AppSettings {
     required this.playbackQuality,
     required this.playerClient,
     required this.backgroundPlayback,
+    this.apiBaseUrl = '',
+    this.preferServerPlayback = true,
+    this.preferServerDownload = true,
   });
 
   /// Output path where yt-dlp writes files.
@@ -45,6 +48,15 @@ class AppSettings {
   final PlayerClientPreset playerClient;
   final bool backgroundPlayback;
 
+  /// Production API origin (empty = local-only). Example: `http://10.0.2.2:8080`.
+  final String apiBaseUrl;
+
+  /// Prefer Playback API when [apiBaseUrl] is set.
+  final bool preferServerPlayback;
+
+  /// Prefer server download jobs when [apiBaseUrl] is set.
+  final bool preferServerDownload;
+
   /// Default settings used on first launch.
   static const AppSettings defaults = AppSettings(
     outputPath: '',
@@ -65,6 +77,9 @@ class AppSettings {
     playbackQuality: PlaybackQualitySetting.auto,
     playerClient: PlayerClientPreset.androidWeb,
     backgroundPlayback: true,
+    apiBaseUrl: '',
+    preferServerPlayback: true,
+    preferServerDownload: true,
   );
 
   /// Returns a copy with optional field overrides.
@@ -87,6 +102,9 @@ class AppSettings {
     PlaybackQualitySetting? playbackQuality,
     PlayerClientPreset? playerClient,
     bool? backgroundPlayback,
+    String? apiBaseUrl,
+    bool? preferServerPlayback,
+    bool? preferServerDownload,
   }) {
     return AppSettings(
       outputPath: outputPath ?? this.outputPath,
@@ -110,6 +128,9 @@ class AppSettings {
       playbackQuality: playbackQuality ?? this.playbackQuality,
       playerClient: playerClient ?? this.playerClient,
       backgroundPlayback: backgroundPlayback ?? this.backgroundPlayback,
+      apiBaseUrl: apiBaseUrl ?? this.apiBaseUrl,
+      preferServerPlayback: preferServerPlayback ?? this.preferServerPlayback,
+      preferServerDownload: preferServerDownload ?? this.preferServerDownload,
     );
   }
 
@@ -134,6 +155,9 @@ class AppSettings {
       'playbackQuality': playbackQuality.name,
       'playerClient': playerClient.name,
       'backgroundPlayback': backgroundPlayback,
+      'apiBaseUrl': apiBaseUrl,
+      'preferServerPlayback': preferServerPlayback,
+      'preferServerDownload': preferServerDownload,
     };
   }
 
@@ -189,6 +213,13 @@ class AppSettings {
       ),
       backgroundPlayback:
           (json['backgroundPlayback'] as bool?) ?? defaults.backgroundPlayback,
+      apiBaseUrl: json['apiBaseUrl']?.toString() ?? defaults.apiBaseUrl,
+      preferServerPlayback:
+          (json['preferServerPlayback'] as bool?) ??
+          defaults.preferServerPlayback,
+      preferServerDownload:
+          (json['preferServerDownload'] as bool?) ??
+          defaults.preferServerDownload,
     );
   }
 }

@@ -13,12 +13,13 @@ import '../../core/utils/permission_handler_util.dart';
 import '../../data/models/browse_video.dart';
 import '../../data/models/playback_resolved.dart';
 import '../../data/models/video_format.dart';
-import '../../data/models/app_settings.dart';
 import '../../data/providers/browse_providers.dart';
 import '../../data/providers/library_providers.dart';
 import '../../data/providers/player_provider.dart';
 import '../../data/providers/settings_providers.dart';
 import '../../data/providers/ytdlp_providers.dart';
+import '../../data/services/download_format_catalog.dart';
+import '../../data/services/playback_po_token.dart';
 import '../../data/local/library_store.dart';
 import '../widgets/browse/browse_video_tile.dart';
 import '../widgets/common/app_snackbar.dart';
@@ -248,12 +249,18 @@ class WatchPage extends ConsumerWidget {
     if (video == null) {
       return;
     }
-    final String client =
-        ref.read(settingsProvider).valueOrNull?.playerClient.ytDlpValue ??
-        PlayerClientPreset.androidWeb.ytDlpValue;
-    final Future<List<VideoFormat>> pending = ref
-        .read(ytdlpServiceProvider)
-        .fetchFormats(video.url, playerClient: client);
+    final String? settingsClient =
+        ref.read(settingsProvider).valueOrNull?.playerClient.ytDlpValue;
+    await PlaybackPoTokenService.ensureMinter(rethrowOnError: false);
+    if (!context.mounted) {
+      return;
+    }
+    final Future<List<VideoFormat>> pending = DownloadFormatCatalog.build(
+      ytdlp: ref.read(ytdlpServiceProvider),
+      url: video.url,
+      mintPoTokens: PlaybackPoTokenService.mint,
+      settingsClientOverride: settingsClient,
+    );
     final VideoFormat? chosen = await showModalBottomSheet<VideoFormat>(
       context: context,
       builder: (BuildContext ctx) {
@@ -271,7 +278,7 @@ class WatchPage extends ConsumerWidget {
                 ),
               );
             }
-            if (snap.hasError || snap.data == null) {
+            if (snap.hasError || snap.data == null || snap.data!.isEmpty) {
               return SafeArea(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -289,44 +296,56 @@ class WatchPage extends ConsumerWidget {
               );
             }
             final List<VideoFormat> formats = snap.data!;
-            final bool hasAudio = formats.any(
-              (VideoFormat f) => f.isAudioOnly,
+            final VideoFormat? best = DownloadFormatCatalog.closest(
+              catalog: formats,
             );
+            final VideoFormat? audio = DownloadFormatCatalog.closest(
+              catalog: formats,
+              audioOnly: true,
+            );
+            final List<VideoFormat> heightChips = <VideoFormat>[];
+            final Set<String> seenIds = <String>{};
+            for (final int target in <int>[2160, 1440, 1080, 720, 480, 360]) {
+              final VideoFormat? match = DownloadFormatCatalog.closest(
+                catalog: formats,
+                targetHeight: target,
+              );
+              if (match == null || match.height == null) {
+                continue;
+              }
+              if ((match.height! - target).abs() > 80 &&
+                  match.height! < target) {
+                continue;
+              }
+              if (seenIds.add(match.formatId)) {
+                heightChips.add(match);
+              }
+            }
             return SafeArea(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
                   const ListTile(title: Text(AppStrings.downloadQualityTitle)),
-                  ListTile(
-                    title: const Text(AppStrings.downloadQualityBest),
-                    onTap: () => Navigator.pop(
-                      ctx,
-                      VideoFormat.downloadSelector(),
+                  if (best != null)
+                    ListTile(
+                      title: const Text(AppStrings.downloadQualityBest),
+                      subtitle: Text(best.displayLabel),
+                      onTap: () => Navigator.pop(ctx, best),
+                    ),
+                  ...heightChips.map(
+                    (VideoFormat f) => ListTile(
+                      title: Text(
+                        '${f.height}${AppStrings.formatVideoSuffix}',
+                      ),
+                      subtitle: Text(f.displayLabel),
+                      onTap: () => Navigator.pop(ctx, f),
                     ),
                   ),
-                  ...<int>[2160, 1440, 1080, 720, 480, 360]
-                      .where(
-                        (int height) => formats.any((VideoFormat f) {
-                          final int? h = f.height;
-                          return h != null && h >= height;
-                        }),
-                      )
-                      .map(
-                        (int height) => ListTile(
-                          title: Text('$height${AppStrings.formatVideoSuffix}'),
-                          onTap: () => Navigator.pop(
-                            ctx,
-                            VideoFormat.downloadSelector(maxHeight: height),
-                          ),
-                        ),
-                      ),
-                  if (hasAudio)
+                  if (audio != null)
                     ListTile(
                       title: const Text(AppStrings.downloadQualityAudio),
-                      onTap: () => Navigator.pop(
-                        ctx,
-                        VideoFormat.downloadSelector(audioOnly: true),
-                      ),
+                      subtitle: Text(audio.displayLabel),
+                      onTap: () => Navigator.pop(ctx, audio),
                     ),
                 ],
               ),

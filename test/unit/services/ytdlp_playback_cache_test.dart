@@ -9,7 +9,7 @@ void main() {
     int extracts = 0;
     YtdlpService.debugFetchJson = (String url, String playerClient) async {
       extracts += 1;
-      expect(playerClient, 'android');
+      expect(playerClient, 'default');
       return _payload();
     };
 

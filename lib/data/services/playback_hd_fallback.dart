@@ -1,4 +1,4 @@
-/// Extraction strategies + HD warm ladder for in-app playback.
+/// Capability-based extraction strategies for in-app playback.
 library;
 
 import '../../core/constants/app_strings.dart';
@@ -9,49 +9,114 @@ import '../models/playback_po_token.dart';
 import '../models/playback_resolved.dart';
 import 'ytdlp_service.dart';
 
-/// Verified extraction strategies (not arbitrary client spam).
+/// Capability-based strategies — not a hard-coded list of dead clients.
 ///
-/// - [defaultClients]: yt-dlp built-in YouTube clients (no override).
-/// - [poMwebBundle]: mweb with BotGuard PO + visitors, plus clients that
-///   still expose HTTPS/HLS alongside SABR-only web.
-/// - [httpsFallback]: clients known to return direct HTTPS / HLS without PO.
+/// Order for start/warm: [defaultClients] → [android] → [mwebWithPot] (if
+/// tokens) → [webSafariHls] → [webEmbedded].
 enum ExtractionStrategy {
-  /// Let yt-dlp choose (`android_vr` / `web_safari` / `web_embedded` today).
+  /// Let current yt-dlp pick YouTube clients (no `player_client` override).
   defaultClients,
 
-  /// `mweb` + PO + visitor_data, plus HTTPS/HLS companions.
-  poMwebBundle,
+  /// Explicit `android` client (not `android_vr`, which is broken since Aug 2026).
+  android,
 
-  /// HTTPS/HLS without requiring a web PO token.
-  httpsFallback,
+  /// `mweb` only when a complete BotGuard GVS+player PO + visitor_data exists.
+  mwebWithPot,
+
+  /// Prefer HLS from `web_safari` when HTTPS adaptive is unavailable.
+  webSafariHls,
+
+  /// Last resort for embeddable videos only.
+  webEmbedded,
 }
 
-/// Player-client string for [ExtractionStrategy], or `default` for no override.
+/// yt-dlp `player_client` value, or `default` for no override.
 String extractionPlayerClient(ExtractionStrategy strategy) {
   switch (strategy) {
     case ExtractionStrategy.defaultClients:
       return 'default';
-    case ExtractionStrategy.poMwebBundle:
-      return 'mweb,android_vr,web_safari,web_embedded';
-    case ExtractionStrategy.httpsFallback:
-      return 'android_vr,web_safari,web_embedded';
+    case ExtractionStrategy.android:
+      return 'android';
+    case ExtractionStrategy.mwebWithPot:
+      return 'mweb';
+    case ExtractionStrategy.webSafariHls:
+      return 'web_safari';
+    case ExtractionStrategy.webEmbedded:
+      return 'web_embedded';
   }
 }
 
-/// Last-resort / quality-cache client label (HTTPS fallback bundle).
-const String kPlaybackStartClient = 'android_vr,web_safari,web_embedded';
+/// Whether [strategy] requires a complete PO + visitor_data mint.
+bool extractionRequiresPo(ExtractionStrategy strategy) {
+  return strategy == ExtractionStrategy.mwebWithPot;
+}
 
-/// Client that still returns direct HTTPS adaptive URLs for many SABR videos.
-const String kPlaybackHdFallbackClient = 'android_vr,web';
+/// Preferred start / quality-cache label (yt-dlp default clients).
+const String kPlaybackStartClient = 'default';
 
-/// Web client used with minted BotGuard PO tokens (alone).
+/// Explicit android client (quality switch / warm).
+const String kPlaybackAndroidClient = 'android';
+
+/// Deprecated VR bundle — kept only so old call sites compile; never used.
+@Deprecated('android_vr is broken since Aug 2026; do not use')
+const String kPlaybackHdFallbackClient = 'android';
+
+/// Web client used with minted BotGuard PO tokens.
 const String kPlaybackMwebClient = 'mweb';
 
 /// Safari web client; HLS often works without a GVS PO token.
 const String kPlaybackWebSafariClient = 'web_safari';
 
-/// Max wait for BotGuard mint before falling through.
+/// Embeddable-only last resort.
+const String kPlaybackWebEmbeddedClient = 'web_embedded';
+
+/// Max wait for BotGuard mint before skipping mwebWithPot.
 const Duration kPlaybackMintTimeout = Duration(seconds: 10);
+
+/// Append GVS PO token as `pot=` on googlevideo HTTPS URLs when missing.
+String? playbackAppendGvsPot(String? url, String? pot) {
+  if (url == null || url.isEmpty) {
+    return url;
+  }
+  final String token = pot?.trim() ?? '';
+  if (token.isEmpty) {
+    return url;
+  }
+  final String lower = url.toLowerCase();
+  if (!lower.contains('googlevideo.com')) {
+    return url;
+  }
+  if (lower.contains('.m3u8') || lower.contains('manifest/hls')) {
+    return url;
+  }
+  if (lower.contains('pot=')) {
+    return url;
+  }
+  final String sep = url.contains('?') ? '&' : '?';
+  return '$url${sep}pot=${Uri.encodeQueryComponent(token)}';
+}
+
+/// Rewrite stream URLs with a GVS pot when available.
+PlaybackResolved playbackWithGvsPot(PlaybackResolved resolved, String? pot) {
+  final String token = pot?.trim() ?? '';
+  if (token.isEmpty) {
+    return resolved;
+  }
+  return PlaybackResolved(
+    info: resolved.info,
+    mode: resolved.mode,
+    headers: resolved.headers,
+    quality: resolved.quality,
+    videoUrl: playbackAppendGvsPot(resolved.videoUrl, token),
+    audioUrl: playbackAppendGvsPot(resolved.audioUrl, token),
+    progressiveUrl: playbackAppendGvsPot(resolved.progressiveUrl, token),
+    hlsUrl: resolved.hlsUrl,
+    height: resolved.height,
+    expiresAt: resolved.expiresAt,
+    formatId: resolved.formatId,
+    availableHeights: resolved.availableHeights,
+  );
+}
 
 /// True when a googlevideo URL was minted for the ANDROID_VR client.
 bool playbackUrlIsAndroidVr(String? url) {
@@ -125,10 +190,20 @@ bool playbackStartIsAcceptable(PlaybackResolved resolved) {
   return true;
 }
 
-/// PO-first start: poMwebBundle → default → httpsFallback.
+List<ExtractionStrategy> _startStrategies({required bool hasPo}) {
+  return <ExtractionStrategy>[
+    ExtractionStrategy.defaultClients,
+    ExtractionStrategy.android,
+    if (hasPo) ExtractionStrategy.mwebWithPot,
+    ExtractionStrategy.webSafariHls,
+    ExtractionStrategy.webEmbedded,
+  ];
+}
+
+/// Default-first start. Never forces a fixed format ID or dead `android_vr`.
 ///
-/// Never fails merely because an exact height (e.g. 360) is missing — the
-/// resolver picks the closest available playable format from `formats[]`.
+/// Extracts full `formats[]` then selects the closest playable height for
+/// [PlaybackQuality.p360] preference (falls up when 360 is missing).
 Future<PlaybackResolved> resolvePlaybackStart({
   required YtdlpService ytdlp,
   required String url,
@@ -145,7 +220,7 @@ Future<PlaybackResolved> resolvePlaybackStart({
       AppLogger.i('BotGuard mint for start $videoId');
       tokens = await mintPoTokens(videoId).timeout(mintTimeout);
       if (tokens != null && !tokens.isComplete) {
-        AppLogger.w('BotGuard mint incomplete; continuing without PO');
+        AppLogger.w('BotGuard mint incomplete; skipping mwebWithPot');
         tokens = null;
       }
     } on Object catch (error, stack) {
@@ -154,13 +229,9 @@ Future<PlaybackResolved> resolvePlaybackStart({
     }
   }
 
-  final List<ExtractionStrategy> strategies = <ExtractionStrategy>[
-    if (tokens != null) ExtractionStrategy.poMwebBundle,
-    ExtractionStrategy.defaultClients,
-    ExtractionStrategy.httpsFallback,
-  ];
-
-  for (final ExtractionStrategy strategy in strategies) {
+  for (final ExtractionStrategy strategy in _startStrategies(
+    hasPo: tokens != null,
+  )) {
     final PlaybackResolved? resolved = await _tryStrategy(
       ytdlp: ytdlp,
       url: url,
@@ -168,6 +239,8 @@ Future<PlaybackResolved> resolvePlaybackStart({
       forceRefresh: forceRefresh,
       timeout: timeout,
       tokens: tokens,
+      // Selection preference only — yt-dlp still dumps full formats[].
+      quality: PlaybackQuality.p360,
     );
     if (resolved != null) {
       return resolved;
@@ -183,38 +256,65 @@ Future<PlaybackResolved?> _tryStrategy({
   required ExtractionStrategy strategy,
   required bool forceRefresh,
   required Duration timeout,
+  required PlaybackQuality quality,
   PlaybackPoToken? tokens,
 }) async {
-  final String client = extractionPlayerClient(strategy);
-  final bool usePo =
-      strategy == ExtractionStrategy.poMwebBundle && tokens != null;
+  if (extractionRequiresPo(strategy) &&
+      (tokens == null || !tokens.isComplete)) {
+    AppLogger.w('skip ${strategy.name}: missing PO/visitor_data');
+    return null;
+  }
 
-  // Prefer a capped quality first for fast start, then any playable format.
-  for (final PlaybackQuality quality in <PlaybackQuality>[
-    PlaybackQuality.p360,
-    PlaybackQuality.auto,
-  ]) {
-    final PlaybackResolved? raw = await _fetchClient(
+  final String client = extractionPlayerClient(strategy);
+  final bool usePo = extractionRequiresPo(strategy);
+  final PlaybackPoToken? pot = usePo ? tokens : null;
+
+  final PlaybackResolved? raw = await _fetchClient(
+    ytdlp: ytdlp,
+    url: url,
+    quality: quality,
+    client: client,
+    forceRefresh: forceRefresh,
+    timeout: timeout,
+    poToken: pot?.extractorValue,
+    visitorData: pot?.visitorData,
+  );
+  if (raw == null) {
+    return null;
+  }
+
+  final PlaybackResolved clean = playbackWithGvsPot(
+    playbackSanitizeAndroidVr(raw),
+    pot?.gvs,
+  );
+  AppLogger.i(
+    'strategy=${strategy.name} client=$client quality=${quality.name} '
+    'mode=${clean.mode.name} height=${clean.height} '
+    'heights=${clean.availableHeights} playable=${clean.isPlayable}',
+  );
+  if (playbackStartIsAcceptable(clean)) {
+    return clean;
+  }
+  // Same JSON, try unrestricted selection if capped pick was unusable.
+  if (quality != PlaybackQuality.auto) {
+    final PlaybackResolved? auto = await _fetchClient(
       ytdlp: ytdlp,
       url: url,
-      quality: quality,
+      quality: PlaybackQuality.auto,
       client: client,
-      forceRefresh: forceRefresh,
+      forceRefresh: false,
       timeout: timeout,
-      poToken: usePo ? tokens.extractorValue : null,
-      visitorData: usePo ? tokens.visitorData : null,
+      poToken: pot?.extractorValue,
+      visitorData: pot?.visitorData,
     );
-    if (raw == null) {
-      continue;
-    }
-    final PlaybackResolved clean = playbackSanitizeAndroidVr(raw);
-    AppLogger.i(
-      'strategy=${strategy.name} quality=${quality.name} '
-      'mode=${clean.mode.name} height=${clean.height} '
-      'heights=${clean.availableHeights.length} playable=${clean.isPlayable}',
-    );
-    if (playbackStartIsAcceptable(clean)) {
-      return clean;
+    if (auto != null) {
+      final PlaybackResolved cleanAuto = playbackWithGvsPot(
+        playbackSanitizeAndroidVr(auto),
+        pot?.gvs,
+      );
+      if (playbackStartIsAcceptable(cleanAuto)) {
+        return cleanAuto;
+      }
     }
   }
   return null;
@@ -246,64 +346,31 @@ Future<PlaybackResolved?> warmPlaybackHdLadder({
     }
   }
 
-  final List<ExtractionStrategy> strategies = <ExtractionStrategy>[
-    if (tokens != null) ExtractionStrategy.poMwebBundle,
-    ExtractionStrategy.defaultClients,
-    ExtractionStrategy.httpsFallback,
-  ];
-
-  for (final ExtractionStrategy strategy in strategies) {
-    if (!playbackNeedsExtraClient(best) && strategy != strategies.first) {
+  for (final ExtractionStrategy strategy in _startStrategies(
+    hasPo: tokens != null,
+  )) {
+    if (!playbackNeedsExtraClient(best)) {
       break;
     }
-    final bool usePo =
-        strategy == ExtractionStrategy.poMwebBundle && tokens != null;
-    final PlaybackResolved? raw = await _fetchClient(
+    final PlaybackResolved? clean = await _tryStrategy(
       ytdlp: ytdlp,
       url: url,
-      quality: PlaybackQuality.auto,
-      client: extractionPlayerClient(strategy),
+      strategy: strategy,
       forceRefresh: true,
       timeout: timeout,
-      poToken: usePo ? tokens.extractorValue : null,
-      visitorData: usePo ? tokens.visitorData : null,
+      tokens: tokens,
+      quality: PlaybackQuality.auto,
     );
-    if (raw == null) {
+    if (clean == null) {
       continue;
     }
-    final PlaybackResolved clean = playbackSanitizeAndroidVr(raw);
-    // Skip VR-only ~360 ladders.
-    if (playbackMaxAvailableHeight(clean) < 720 &&
-        playbackUrlIsAndroidVr(clean.progressiveUrl)) {
-      AppLogger.w('HD warm discarded VR-only ladder');
+    if (playbackUrlIsAndroidVr(clean.progressiveUrl) &&
+        playbackMaxAvailableHeight(clean) < 720) {
+      AppLogger.w('HD warm discarded VR-polluted low ladder');
       continue;
     }
     if (playbackFallbackImproves(best, clean)) {
       best = clean;
-    }
-    if (!playbackNeedsExtraClient(best)) {
-      break;
-    }
-  }
-
-  // Optional legacy VR client when still short on HD and not already VR.
-  if (playbackNeedsExtraClient(best) &&
-      preferredClient != kPlaybackHdFallbackClient) {
-    final PlaybackResolved? vr = await _fetchClient(
-      ytdlp: ytdlp,
-      url: url,
-      quality: PlaybackQuality.auto,
-      client: kPlaybackHdFallbackClient,
-      forceRefresh: true,
-      timeout: timeout,
-    );
-    if (vr != null) {
-      final int maxH = playbackMaxAvailableHeight(vr);
-      if (maxH >= 720 && playbackFallbackImproves(best, vr)) {
-        best = playbackSanitizeAndroidVr(vr);
-      } else {
-        AppLogger.w('android_vr discarded (max=$maxH, need >=720)');
-      }
     }
   }
 
@@ -350,7 +417,6 @@ Future<PlaybackResolved?> _fetchClient({
         )
         .timeout(timeout);
   } on Object catch (error, stack) {
-    // Empty formats / SABR-only / format-not-available → try next strategy.
     AppLogger.w('resolve via $client failed: $error\n$stack');
     return null;
   }

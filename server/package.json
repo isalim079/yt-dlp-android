@@ -1,0 +1,19 @@
+{
+  "name": "yxz-tube-server",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "workers/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @yxz/shared && npm run build -w @yxz/extractor && npm run build -w @yxz/api && npm run build -w @yxz/downloader",
+    "dev:api": "npm run dev -w @yxz/api",
+    "dev:extractor": "npm run dev -w @yxz/extractor",
+    "dev:downloader": "npm run dev -w @yxz/downloader",
+    "typecheck": "npm run typecheck -w @yxz/shared && npm run typecheck -w @yxz/extractor && npm run typecheck -w @yxz/api && npm run typecheck -w @yxz/downloader"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

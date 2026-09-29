@@ -3,7 +3,8 @@ library;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// Bottom-tab navigator with a back stack (0 Home, 1 Search, 2 Library, 3 Settings).
+/// Bottom-tab navigator with a back stack
+/// (0 Home, 1 Shorts, 2 Search, 3 Library, 4 Settings).
 class TabIndexController extends Notifier<int> {
   final List<int> _history = <int>[];
 

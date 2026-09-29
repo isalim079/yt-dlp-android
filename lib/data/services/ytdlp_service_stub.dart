@@ -61,14 +61,43 @@ class YtdlpService {
     required String formatId,
     required String outputTemplate,
     required AppSettings settings,
+    String? playerClient,
+    String? poToken,
+    String? visitorData,
+    bool mergeOutput = false,
   }) {
-    return <String>[
-      url,
+    final String client =
+        (playerClient != null && playerClient.trim().isNotEmpty)
+        ? playerClient.trim()
+        : settings.playerClient.ytDlpValue;
+    final List<String> args = <String>[
+      '-f',
       formatId,
+      '-o',
       outputTemplate,
-      settings.preferredFormat.name,
+      '--extractor-args',
+      extractorArgsFor(client, poToken: poToken, visitorData: visitorData),
     ];
+    if (mergeOutput || formatId.contains('+')) {
+      args.addAll(<String>['--merge-output-format', 'mp4']);
+    }
+    args.add(url);
+    return args;
   }
+
+  /// Always throws [YtdlpException] on web.
+  Future<String> fetchFormatsJson(
+    String url, {
+    String playerClient = 'default',
+    String? poToken,
+    String? visitorData,
+    bool forceRefresh = false,
+  }) async {
+    throw const YtdlpException(AppStrings.errorUnknown);
+  }
+
+  /// No-op on web.
+  void invalidateFormatCache(String url) {}
 
   /// Always throws [YtdlpException] on web.
   Future<List<VideoFormat>> fetchFormats(
@@ -90,7 +119,7 @@ class YtdlpService {
   Future<PlaybackResolved> resolvePlayback(
     String url, {
     PlaybackQuality quality = PlaybackQuality.auto,
-    String playerClient = 'android',
+    String playerClient = 'default',
     bool forceRefresh = false,
     String? poToken,
     String? visitorData,

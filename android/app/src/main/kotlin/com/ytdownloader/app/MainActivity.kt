@@ -3,6 +3,7 @@ package com.ytdownloader.app
 import android.util.Log
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
+import com.ytdownloader.app.feed.FeedBridge
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -19,6 +20,7 @@ import java.util.UUID
 
 class MainActivity : FlutterActivity() {
     private val channel = "com.ytdownloader.app/ytdlp"
+    private val feedChannel = "com.ytdownloader.app/feed"
     private val progressChannel = "com.ytdownloader.app/ytdlp_progress"
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val activeJobs = mutableMapOf<String, Job>()
@@ -43,6 +45,45 @@ class MainActivity : FlutterActivity() {
                 }
             },
         )
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, feedChannel)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "fetchHomeFeed" -> {
+                        val continuation = call.argument<String>("continuation")
+                        scope.launch {
+                            try {
+                                val page = FeedBridge.fetchHomeFeed(continuation)
+                                withContext(Dispatchers.Main) {
+                                    result.success(page)
+                                }
+                            } catch (e: Exception) {
+                                Log.e("YTDownloader", "fetchHomeFeed failed: ${e.message}")
+                                withContext(Dispatchers.Main) {
+                                    result.error("FEED_ERROR", e.message, null)
+                                }
+                            }
+                        }
+                    }
+                    "fetchShortsFeed" -> {
+                        val continuation = call.argument<String>("continuation")
+                        scope.launch {
+                            try {
+                                val page = FeedBridge.fetchShortsFeed(continuation)
+                                withContext(Dispatchers.Main) {
+                                    result.success(page)
+                                }
+                            } catch (e: Exception) {
+                                Log.e("YTDownloader", "fetchShortsFeed failed: ${e.message}")
+                                withContext(Dispatchers.Main) {
+                                    result.error("FEED_ERROR", e.message, null)
+                                }
+                            }
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channel).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -177,8 +218,17 @@ class MainActivity : FlutterActivity() {
                     val skipExisting = call.argument<Boolean>("skipExisting") ?: true
                     val rateLimit = call.argument<String>("rateLimit") ?: ""
                     val playerClient = call.argument<String>("playerClient") ?: "android,web"
+                    val poToken = call.argument<String>("poToken")
+                    val visitorData = call.argument<String>("visitorData")
+                    val mergeOutput = call.argument<Boolean>("mergeOutput")
+                        ?: formatId.contains('+')
                     val processId = call.argument<String>("processId") ?: UUID.randomUUID().toString()
-                    Log.d("YTDownloader", "Starting download: url=$url format=$formatId output=$outputPath")
+                    Log.d(
+                        "YTDownloader",
+                        "Starting download: url=$url format=$formatId " +
+                            "client=$playerClient hasPo=${!poToken.isNullOrBlank()} " +
+                            "merge=$mergeOutput output=$outputPath",
+                    )
 
                     val request = YoutubeDLRequest(url)
                     request.addOption("-f", formatId)
@@ -193,6 +243,9 @@ class MainActivity : FlutterActivity() {
                         skipExisting = skipExisting,
                         rateLimit = rateLimit,
                         playerClient = playerClient,
+                        poToken = poToken,
+                        visitorData = visitorData,
+                        mergeOutput = mergeOutput,
                     )
 
                     val job = scope.launch {
@@ -241,6 +294,9 @@ class MainActivity : FlutterActivity() {
                                         skipExisting = skipExisting,
                                         rateLimit = rateLimit,
                                         playerClient = playerClient,
+                                        poToken = poToken,
+                                        visitorData = visitorData,
+                                        mergeOutput = true,
                                     )
                                     executeWithProgress(fallbackRequest, processId)
                                     val completionData = mapOf(
@@ -484,11 +540,20 @@ class MainActivity : FlutterActivity() {
         skipExisting: Boolean,
         rateLimit: String,
         playerClient: String = "android,web",
+        poToken: String? = null,
+        visitorData: String? = null,
+        mergeOutput: Boolean = false,
     ) {
         request.addOption("-o", "$outputPath/%(title)s.%(ext)s")
         request.addOption("--no-warnings")
-        request.addOption("--extractor-args", youtubeExtractorArgs(playerClient))
+        request.addOption(
+            "--extractor-args",
+            youtubeExtractorArgs(playerClient, poToken, visitorData),
+        )
         request.addOption("--parse-metadata", ":(?P<comment>Downloaded with yt-dlp App)")
+        if (mergeOutput) {
+            request.addOption("--merge-output-format", "mp4")
+        }
         if (!isPlaylist) {
             request.addOption("--no-playlist")
         } else {

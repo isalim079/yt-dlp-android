@@ -18,6 +18,7 @@ import '../../../data/models/video_format.dart';
 import '../../../data/models/video_info.dart';
 import '../../../data/providers/app_navigation_providers.dart';
 import '../../../data/providers/download_providers.dart';
+import '../../../data/providers/feed_providers.dart';
 import '../../../data/providers/home_feedback_providers.dart';
 import '../../../data/providers/library_providers.dart';
 import '../../../data/providers/player_provider.dart';
@@ -191,7 +192,7 @@ class HomeScreenController extends AutoDisposeNotifier<HomeScreenState> {
           title: videoInfo.title,
           thumbnailUrl: videoInfo.thumbnail,
         );
-    ref.read(tabIndexProvider.notifier).goTo(2);
+    ref.read(tabIndexProvider.notifier).goTo(AppTabs.library);
     ref.read(librarySectionProvider.notifier).state = LibrarySection.downloads;
     if (context.mounted) {
       AppSnackbar.showSuccess(context, AppStrings.downloadStarted);
@@ -240,7 +241,7 @@ class HomeScreenController extends AutoDisposeNotifier<HomeScreenState> {
           totalCount: info.count,
           entries: info.entries,
         );
-    ref.read(tabIndexProvider.notifier).goTo(2);
+    ref.read(tabIndexProvider.notifier).goTo(AppTabs.library);
     ref.read(librarySectionProvider.notifier).state = LibrarySection.downloads;
     if (context.mounted) {
       AppSnackbar.showSuccess(context, AppStrings.downloadStarted);

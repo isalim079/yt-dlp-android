@@ -72,6 +72,7 @@ class SettingsScreen extends ConsumerWidget {
           children: <Widget>[
             _downloadLocationSection(context, ref, settings),
             _playbackSection(context, ref, settings),
+            _serverSection(context, ref, settings),
             _videoQualitySection(context, ref, settings),
             _downloadOptionsSection(context, ref, settings),
             _advancedSection(context, ref, settings),
@@ -194,6 +195,95 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _serverSection(
+    BuildContext context,
+    WidgetRef ref,
+    AppSettings settings,
+  ) {
+    return _SettingsSection(
+      title: AppStrings.sectionServer,
+      children: <Widget>[
+        _SettingsTile(
+          icon: Icons.cloud_outlined,
+          title: AppStrings.tileApiBaseUrl,
+          subtitle: settings.apiBaseUrl.isEmpty
+              ? AppStrings.tileApiBaseUrlSub
+              : settings.apiBaseUrl,
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () => _editApiBaseUrl(context, ref, settings),
+        ),
+        _SettingsTile(
+          icon: Icons.cloud_download_outlined,
+          title: AppStrings.tilePreferServerPlayback,
+          subtitle: AppStrings.tilePreferServerPlaybackSub,
+          trailing: Switch.adaptive(
+            value: settings.preferServerPlayback,
+            onChanged: (bool value) {
+              ref.read(settingsProvider.notifier).updateSetting(
+                (AppSettings s) => s.copyWith(preferServerPlayback: value),
+              );
+            },
+          ),
+        ),
+        _SettingsTile(
+          icon: Icons.cloud_sync_outlined,
+          title: AppStrings.tilePreferServerDownload,
+          subtitle: AppStrings.tilePreferServerDownloadSub,
+          trailing: Switch.adaptive(
+            value: settings.preferServerDownload,
+            onChanged: (bool value) {
+              ref.read(settingsProvider.notifier).updateSetting(
+                (AppSettings s) => s.copyWith(preferServerDownload: value),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _editApiBaseUrl(
+    BuildContext context,
+    WidgetRef ref,
+    AppSettings settings,
+  ) async {
+    final TextEditingController controller =
+        TextEditingController(text: settings.apiBaseUrl);
+    final String? result = await showDialog<String>(
+      context: context,
+      builder: (BuildContext ctx) {
+        return AlertDialog(
+          title: const Text(AppStrings.tileApiBaseUrl),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            keyboardType: TextInputType.url,
+            decoration: const InputDecoration(
+              hintText: 'http://10.0.2.2:8080',
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text(AppStrings.buttonCancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+              child: const Text(AppStrings.buttonSave),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    if (result == null) {
+      return;
+    }
+    ref.read(settingsProvider.notifier).updateSetting(
+      (AppSettings s) => s.copyWith(apiBaseUrl: result),
     );
   }
 

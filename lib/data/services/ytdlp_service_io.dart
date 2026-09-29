@@ -13,6 +13,7 @@ import '../../core/utils/logger.dart';
 import '../../core/utils/youtube_urls.dart';
 import '../../core/utils/ytdlp_launch_command.dart';
 import '../models/app_settings.dart';
+import '../models/playback_manifest.dart';
 import '../models/playback_resolved.dart';
 import '../models/playlist_info.dart';
 import '../models/video_format.dart';
@@ -33,12 +34,25 @@ class YtdlpService {
   final String binaryPath;
 
   /// Builds yt-dlp arguments for a download using [settings].
+  ///
+  /// Prefer [playerClient]/[poToken]/[visitorData] from the selected catalog
+  /// entry so download uses the same InnerTube client that listed the format.
   List<String> buildDownloadArgs({
     required String url,
     required String formatId,
     required String outputTemplate,
     required AppSettings settings,
+    String? playerClient,
+    String? poToken,
+    String? visitorData,
+    bool mergeOutput = false,
   }) {
+    final String client =
+        (playerClient != null && playerClient.trim().isNotEmpty)
+        ? playerClient.trim()
+        : settings.playerClient.ytDlpValue;
+    final bool needsMerge =
+        mergeOutput || formatId.contains('+');
     final List<String> args = <String>[
       '-f',
       formatId,
@@ -49,10 +63,13 @@ class YtdlpService {
       '--progress',
       '--no-playlist',
       '--extractor-args',
-      extractorArgsFor(settings.playerClient.ytDlpValue),
+      extractorArgsFor(client, poToken: poToken, visitorData: visitorData),
       '--parse-metadata',
       ':(?P<comment>Downloaded with yt-dlp App)',
     ];
+    if (needsMerge) {
+      args.addAll(<String>['--merge-output-format', 'mp4']);
+    }
     if (settings.downloadSubtitles) {
       args.addAll(<String>[
         '--write-auto-sub',
@@ -82,6 +99,35 @@ class YtdlpService {
     }
     args.add(url);
     return args;
+  }
+
+  /// Raw yt-dlp `-J` JSON for [url] (shared cache with playback / catalog).
+  Future<String> fetchFormatsJson(
+    String url, {
+    String playerClient = 'default',
+    String? poToken,
+    String? visitorData,
+    bool forceRefresh = false,
+  }) async {
+    try {
+      return await _ensureSingleVideoJson(
+        url,
+        playerClient: playerClient,
+        forceRefresh: forceRefresh,
+        poToken: poToken,
+        visitorData: visitorData,
+      );
+    } on YtdlpException {
+      rethrow;
+    } on Object catch (error, stackTrace) {
+      AppLogger.e('fetchFormatsJson failed', error, stackTrace);
+      throw _mapToYtdlpException(error);
+    }
+  }
+
+  /// Drops cached `-J` bodies for [url] (all strategies).
+  void invalidateFormatCache(String url) {
+    jsonCache.invalidateUrl(url);
   }
 
   static String extractorArgsFor(
@@ -177,7 +223,7 @@ class YtdlpService {
   Future<PlaybackResolved> resolvePlayback(
     String url, {
     PlaybackQuality quality = PlaybackQuality.auto,
-    String playerClient = 'android',
+    String playerClient = 'default',
     bool forceRefresh = false,
     String? poToken,
     String? visitorData,
@@ -203,10 +249,15 @@ class YtdlpService {
         json,
         quality: quality,
       );
+      final PlaybackManifest manifest =
+          PlaybackResolver.manifestFromJson(json);
       AppLogger.i(
         'resolvePlayback client=$playerClient quality=${quality.name} '
         'mode=${resolved.mode.name} height=${resolved.height} '
-        'heights=${resolved.availableHeights.length} '
+        'delivery=${manifest.delivery.type.name} '
+        'vStreams=${manifest.videoStreams.length} '
+        'aStreams=${manifest.audioStreams.length} '
+        'heights=${resolved.availableHeights} '
         'hasPo=${poToken != null && poToken.isNotEmpty} '
         'hasVisitor=${visitorData != null && visitorData.isNotEmpty}',
       );
@@ -421,16 +472,19 @@ class YtdlpService {
   /// Quality is not part of the cache key; callers re-parse the same body.
   Future<String> _ensureSingleVideoJson(
     String url, {
-    String playerClient = 'android',
+    String playerClient = 'default',
     bool forceRefresh = false,
     String? poToken,
     String? visitorData,
   }) async {
     final bool hasPo = poToken != null && poToken.isNotEmpty;
     final bool hasVisitor = visitorData != null && visitorData.isNotEmpty;
-    final String cacheClient = !hasPo && !hasVisitor
-        ? playerClient
-        : '$playerClient|pot|${hasVisitor ? 'v' : ''}';
+    // Strategy identity — never reuse a pot-less body for a pot extract.
+    final String strategy = playerClient.trim().isEmpty
+        ? 'default'
+        : playerClient.trim();
+    final String cacheClient =
+        '$strategy|${hasPo ? 'pot' : 'nopot'}|${hasVisitor ? 'vis' : 'novis'}';
     if (!forceRefresh) {
       final String? cached = jsonCache.read(url, cacheClient);
       if (cached != null) {

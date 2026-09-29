@@ -8,6 +8,7 @@ import 'package:yxz_tube/data/local/library_store.dart';
 import 'package:yxz_tube/data/models/browse_video.dart';
 import 'package:yxz_tube/data/providers/binary_path_provider.dart';
 import 'package:yxz_tube/data/providers/browse_providers.dart';
+import 'package:yxz_tube/data/providers/feed_providers.dart';
 import 'package:yxz_tube/data/providers/library_providers.dart';
 
 void main() {
@@ -30,9 +31,8 @@ void main() {
           followedFeedProvider.overrideWith(
             (Ref ref) async => const <BrowseVideo>[],
           ),
-          recommendedFeedProvider.overrideWith(
-            (Ref ref) async => const <BrowseVideo>[],
-          ),
+          homePagedFeedProvider.overrideWith(IdlePagedFeedController.new),
+          shortsPagedFeedProvider.overrideWith(IdlePagedFeedController.new),
         ],
         child: const YtDownloaderBootstrap(),
       ),

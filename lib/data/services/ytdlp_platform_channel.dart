@@ -77,6 +77,9 @@ class YtdlpPlatformChannel {
     required bool skipExisting,
     required String rateLimit,
     String playerClient = 'android,web',
+    String? poToken,
+    String? visitorData,
+    bool mergeOutput = false,
   }) async {
     final String? id = await _channel
         .invokeMethod<String>('download', <String, dynamic>{
@@ -92,6 +95,10 @@ class YtdlpPlatformChannel {
           'skipExisting': skipExisting,
           'rateLimit': rateLimit,
           'playerClient': playerClient,
+          if (poToken != null && poToken.isNotEmpty) 'poToken': poToken,
+          if (visitorData != null && visitorData.isNotEmpty)
+            'visitorData': visitorData,
+          'mergeOutput': mergeOutput || formatId.contains('+'),
         });
     return id ?? processId;
   }

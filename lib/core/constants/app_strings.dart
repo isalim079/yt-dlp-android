@@ -40,9 +40,14 @@ abstract final class AppStrings {
   static const String navDownloads = 'Downloads';
   static const String navSettings = 'Settings';
   static const String navHome = 'Home';
+  static const String navShorts = 'Shorts';
   static const String navSearch = 'Search';
   static const String navLibrary = 'Library';
   static const String navGoHome = 'Go to Home';
+  static const String shortsEmpty = 'No Shorts available right now.';
+  static const String shortsLoadingMore = 'Loading more Shorts…';
+  static const String homeLoadingMore = 'Loading more…';
+  static const String homeFeedEnd = 'You\'re all caught up';
 
   static const String exitAppTitle = 'Close the app?';
   static const String exitAppBody =
@@ -431,6 +436,16 @@ abstract final class AppStrings {
   static const String tileBackgroundPlayback = 'Background playback';
   static const String tileBackgroundPlaybackSub =
       'Keep audio playing when the app is in the background';
+  static const String sectionServer = 'PLAYBACK SERVER';
+  static const String tileApiBaseUrl = 'API base URL';
+  static const String tileApiBaseUrlSub =
+      'Empty = local yt-dlp only. Example: http://10.0.2.2:8080';
+  static const String tilePreferServerPlayback = 'Prefer server playback';
+  static const String tilePreferServerPlaybackSub =
+      'Use the Playback API first; fall back to on-device yt-dlp on outages';
+  static const String tilePreferServerDownload = 'Prefer server downloads';
+  static const String tilePreferServerDownloadSub =
+      'Enqueue download jobs on the server when available';
   static const String tileUpdateYtdlp = 'Update yt-dlp';
   static const String tileUpdateYtdlpSub =
       'Fetch the latest extractor. Use this when playback breaks.';

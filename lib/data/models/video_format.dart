@@ -17,6 +17,11 @@ class VideoFormat {
     this.fileSize,
     this.isAudioOnly = false,
     this.audioBitrate,
+    this.sourceClient,
+    this.poToken,
+    this.visitorData,
+    this.extractedAt,
+    this.needsAudioMerge = false,
   });
 
   /// yt-dlp `format_id` (may be a single id or combined ids).
@@ -42,6 +47,21 @@ class VideoFormat {
 
   /// Audio bitrate in kilobits per second when known.
   final double? audioBitrate;
+
+  /// yt-dlp `player_client` that produced this format (download binding).
+  final String? sourceClient;
+
+  /// Opaque BotGuard PO extractor value when this format required PO.
+  final String? poToken;
+
+  /// Visitor data paired with [poToken] for the same extract.
+  final String? visitorData;
+
+  /// When the parent `-J` extract was taken (for stale refresh).
+  final DateTime? extractedAt;
+
+  /// True when [formatId] is video+audio (`137+140`) needing ffmpeg merge.
+  final bool needsAudioMerge;
 
   /// Pixel height parsed from [resolution], when known.
   int? get height {
@@ -150,6 +170,11 @@ class VideoFormat {
     int? fileSize,
     bool? isAudioOnly,
     double? audioBitrate,
+    String? sourceClient,
+    String? poToken,
+    String? visitorData,
+    DateTime? extractedAt,
+    bool? needsAudioMerge,
   }) {
     return VideoFormat(
       formatId: formatId ?? this.formatId,
@@ -160,7 +185,21 @@ class VideoFormat {
       fileSize: fileSize ?? this.fileSize,
       isAudioOnly: isAudioOnly ?? this.isAudioOnly,
       audioBitrate: audioBitrate ?? this.audioBitrate,
+      sourceClient: sourceClient ?? this.sourceClient,
+      poToken: poToken ?? this.poToken,
+      visitorData: visitorData ?? this.visitorData,
+      extractedAt: extractedAt ?? this.extractedAt,
+      needsAudioMerge: needsAudioMerge ?? this.needsAudioMerge,
     );
+  }
+
+  /// True when extract metadata is older than [maxAge] (default 45 minutes).
+  bool isExtractStale([Duration maxAge = const Duration(minutes: 45)]) {
+    final DateTime? at = extractedAt;
+    if (at == null) {
+      return false;
+    }
+    return DateTime.now().difference(at) > maxAge;
   }
 
   @override

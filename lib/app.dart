@@ -18,6 +18,7 @@ import 'data/models/app_settings.dart';
 import 'data/providers/app_navigation_providers.dart';
 import 'data/providers/browse_providers.dart';
 import 'data/providers/download_providers.dart';
+import 'data/providers/feed_providers.dart';
 import 'data/providers/player_provider.dart';
 import 'data/providers/settings_providers.dart';
 import 'data/services/ytdlp_platform_channel.dart';
@@ -27,6 +28,7 @@ import 'presentation/screens/home/home_feed_screen.dart';
 import 'presentation/screens/library/library_screen.dart';
 import 'presentation/screens/search/search_screen.dart';
 import 'presentation/screens/settings/settings_screen.dart';
+import 'presentation/screens/shorts/shorts_feed_screen.dart';
 
 /// Root [MaterialApp] supporting light and dark modes dynamically.
 class YtDownloaderApp extends ConsumerWidget {
@@ -159,7 +161,7 @@ class _MainShellState extends ConsumerState<_MainShell>
 
       final int tab = ref.read(tabIndexProvider);
       final String query = ref.read(searchQueryProvider);
-      if (tab == 1 && query.isNotEmpty) {
+      if (tab == AppTabs.search && query.isNotEmpty) {
         ref.read(searchQueryProvider.notifier).state = '';
         return;
       }
@@ -212,21 +214,25 @@ class _MainShellState extends ConsumerState<_MainShell>
       index: tab,
       children: const <Widget>[
         HomeFeedScreen(),
+        ShortsFeedScreen(),
         SearchScreen(),
         LibraryScreen(),
         SettingsScreen(),
       ],
     );
 
+    final bool showMini =
+        !expanded && !playerState.shortsMode && tab != AppTabs.shorts;
+
     final Widget stacked = Stack(
       children: <Widget>[
         Column(
           children: <Widget>[
             Expanded(child: tabContent),
-            if (!expanded) const MiniPlayerBar(),
+            if (showMini) const MiniPlayerBar(),
           ],
         ),
-        if (expanded) const WatchPage(),
+        if (expanded && !playerState.shortsMode) const WatchPage(),
       ],
     );
 
@@ -260,6 +266,14 @@ class _MainShellState extends ConsumerState<_MainShell>
                         label: const Text(AppStrings.navHome),
                       ),
                       NavigationRailDestination(
+                        icon: const Icon(Icons.video_library_outlined),
+                        selectedIcon: Icon(
+                          Icons.smart_display_rounded,
+                          color: c.primary,
+                        ),
+                        label: const Text(AppStrings.navShorts),
+                      ),
+                      NavigationRailDestination(
                         icon: const Icon(Icons.search_outlined),
                         selectedIcon:
                             Icon(Icons.search_rounded, color: c.primary),
@@ -270,14 +284,14 @@ class _MainShellState extends ConsumerState<_MainShell>
                           isLabelVisible: activeCount > 0,
                           label: Text('$activeCount'),
                           backgroundColor: c.primary,
-                          child: const Icon(Icons.video_library_outlined),
+                          child: const Icon(Icons.folder_outlined),
                         ),
                         selectedIcon: Badge(
                           isLabelVisible: activeCount > 0,
                           label: Text('$activeCount'),
                           backgroundColor: c.primary,
                           child: Icon(
-                            Icons.video_library_rounded,
+                            Icons.folder_rounded,
                             color: c.primary,
                           ),
                         ),
@@ -318,44 +332,59 @@ class _MainShellState extends ConsumerState<_MainShell>
                       child: Row(
                         children: <Widget>[
                           _NavItem(
-                            icon: tab == 0
+                            icon: tab == AppTabs.home
                                 ? Icons.home_rounded
                                 : Icons.home_outlined,
                             label: AppStrings.navHome,
-                            isSelected: tab == 0,
+                            isSelected: tab == AppTabs.home,
                             badge: 0,
-                            onTap: () =>
-                                ref.read(tabIndexProvider.notifier).goTo(0),
+                            onTap: () => ref
+                                .read(tabIndexProvider.notifier)
+                                .goTo(AppTabs.home),
                           ),
                           _NavItem(
-                            icon: tab == 1
+                            icon: tab == AppTabs.shorts
+                                ? Icons.smart_display_rounded
+                                : Icons.smart_display_outlined,
+                            label: AppStrings.navShorts,
+                            isSelected: tab == AppTabs.shorts,
+                            badge: 0,
+                            onTap: () => ref
+                                .read(tabIndexProvider.notifier)
+                                .goTo(AppTabs.shorts),
+                          ),
+                          _NavItem(
+                            icon: tab == AppTabs.search
                                 ? Icons.search_rounded
                                 : Icons.search_outlined,
                             label: AppStrings.navSearch,
-                            isSelected: tab == 1,
+                            isSelected: tab == AppTabs.search,
                             badge: 0,
-                            onTap: () =>
-                                ref.read(tabIndexProvider.notifier).goTo(1),
+                            onTap: () => ref
+                                .read(tabIndexProvider.notifier)
+                                .goTo(AppTabs.search),
                           ),
                           _NavItem(
-                            icon: tab == 2
-                                ? Icons.video_library_rounded
-                                : Icons.video_library_outlined,
+                            icon: tab == AppTabs.library
+                                ? Icons.folder_rounded
+                                : Icons.folder_outlined,
                             label: AppStrings.navLibrary,
-                            isSelected: tab == 2,
+                            isSelected: tab == AppTabs.library,
                             badge: activeCount,
-                            onTap: () =>
-                                ref.read(tabIndexProvider.notifier).goTo(2),
+                            onTap: () => ref
+                                .read(tabIndexProvider.notifier)
+                                .goTo(AppTabs.library),
                           ),
                           _NavItem(
-                            icon: tab == 3
+                            icon: tab == AppTabs.settings
                                 ? Icons.settings_rounded
                                 : Icons.settings_outlined,
                             label: AppStrings.navSettings,
-                            isSelected: tab == 3,
+                            isSelected: tab == AppTabs.settings,
                             badge: 0,
-                            onTap: () =>
-                                ref.read(tabIndexProvider.notifier).goTo(3),
+                            onTap: () => ref
+                                .read(tabIndexProvider.notifier)
+                                .goTo(AppTabs.settings),
                           ),
                         ],
                       ),

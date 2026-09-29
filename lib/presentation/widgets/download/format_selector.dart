@@ -11,6 +11,7 @@ import '../../../core/constants/app_strings.dart';
 import '../../../core/theme/app_ui_colors.dart';
 import '../../../data/models/video_format.dart';
 import '../../../data/providers/ytdlp_providers.dart';
+import '../../../data/services/download_format_catalog.dart';
 import '../common/app_dropdown.dart';
 
 /// Segmented quality selector separating Video and Audio formats with quick chips and details.
@@ -166,7 +167,9 @@ class _FormatSelectorState extends ConsumerState<FormatSelector> {
                         const SizedBox(width: AppDimensions.spaceXs),
                       ],
                       Text(
-                        f.displayLabel.isNotEmpty ? f.displayLabel : (f.resolution ?? 'Best'),
+                        f.isAudioOnly
+                            ? AppStrings.downloadQualityAudio
+                            : (f.resolution ?? AppStrings.downloadQualityBest),
                         style: textTheme.bodySmall?.copyWith(
                           fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
                           color: isCurrent ? accentColor : c.textPrimary,
@@ -341,21 +344,39 @@ class _FormatSelectorState extends ConsumerState<FormatSelector> {
     );
   }
 
-  /// Extracts the most representative quality options for clean display.
+  /// Extracts Best / standard-height chips from the merged catalog.
   List<VideoFormat> _extractQuickChips(List<VideoFormat> list) {
-    if (list.isEmpty) return <VideoFormat>[];
-    final Set<String> seenResolutions = <String>{};
-    final List<VideoFormat> result = <VideoFormat>[];
-
-    for (final VideoFormat f in list) {
-      final String key = f.resolution ?? f.displayLabel;
-      if (!seenResolutions.contains(key)) {
-        seenResolutions.add(key);
-        result.add(f);
-        if (result.length >= 4) break;
+    if (list.isEmpty) {
+      return <VideoFormat>[];
+    }
+    if (list.first.isAudioOnly || list.every((VideoFormat f) => f.isAudioOnly)) {
+      return list.take(4).toList();
+    }
+    final List<VideoFormat> chips = <VideoFormat>[];
+    final Set<String> seen = <String>{};
+    final VideoFormat? best = DownloadFormatCatalog.closest(catalog: list);
+    if (best != null && seen.add(best.formatId)) {
+      chips.add(best);
+    }
+    for (final int target in <int>[1080, 720, 480, 360]) {
+      final VideoFormat? match = DownloadFormatCatalog.closest(
+        catalog: list,
+        targetHeight: target,
+      );
+      if (match == null || match.height == null) {
+        continue;
+      }
+      if ((match.height! - target).abs() > 80 && match.height! < target) {
+        continue;
+      }
+      if (seen.add(match.formatId)) {
+        chips.add(match);
+      }
+      if (chips.length >= 5) {
+        break;
       }
     }
-    return result;
+    return chips;
   }
 }
 

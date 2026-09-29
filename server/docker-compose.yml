@@ -1,0 +1,84 @@
+services:
+  nginx:
+    image: nginx:1.27.4-alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      target: api
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+      MONGO_URI: mongodb://mongo:27017/yxz
+      REDIS_URL: redis://redis:6379
+      DOWNLOAD_DIR: /data/downloads
+      PUBLIC_BASE_URL: http://localhost:8080
+    volumes:
+      - download_data:/data/downloads
+    depends_on:
+      mongo:
+        condition: service_started
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    expose:
+      - "8080"
+
+  extractor:
+    build:
+      context: .
+      target: extractor
+    env_file:
+      - .env
+    environment:
+      MONGO_URI: mongodb://mongo:27017/yxz
+      REDIS_URL: redis://redis:6379
+      YTDLP_BIN: /usr/local/bin/yt-dlp
+      DENO_BIN: /usr/local/bin/deno
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  downloader:
+    build:
+      context: .
+      target: downloader
+    env_file:
+      - .env
+    environment:
+      MONGO_URI: mongodb://mongo:27017/yxz
+      REDIS_URL: redis://redis:6379
+      DOWNLOAD_DIR: /data/downloads
+      YTDLP_BIN: /usr/local/bin/yt-dlp
+      FFMPEG_BIN: /usr/bin/ffmpeg
+      FFPROBE_BIN: /usr/bin/ffprobe
+    volumes:
+      - download_data:/data/downloads
+    depends_on:
+      - redis
+      - mongo
+    restart: unless-stopped
+
+  redis:
+    image: redis:8.0.1-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:8.0.4
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+  download_data:

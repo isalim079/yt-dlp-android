@@ -12,17 +12,25 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/constants/app_strings.dart';
 import '../../core/utils/ytdlp_launch_command.dart';
 import '../../core/utils/logger.dart';
+import '../../core/utils/youtube_urls.dart';
 import '../models/app_download_record.dart';
 import '../models/app_settings.dart';
 import '../models/download_item.dart';
 import '../models/download_progress.dart';
 import '../models/playlist_info.dart';
 import '../models/video_format.dart';
+import '../providers/api_providers.dart';
 import '../providers/binary_path_provider.dart';
 import '../providers/settings_providers.dart';
 import '../providers/ytdlp_providers.dart';
+import 'api/api_exception.dart';
+import 'api/download_api_repository.dart';
+import 'api/installation_auth.dart';
 import 'app_download_registry.dart';
+import 'download_format_catalog.dart';
+import 'playback_po_token.dart';
 import 'ytdlp_platform_channel.dart';
+import 'ytdlp_service.dart';
 
 /// Manages queued downloads, concurrent yt-dlp processes, and progress.
 class DownloadManager extends Notifier<List<DownloadItem>> {
@@ -38,6 +46,7 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
   final Map<String, Process> _activeProcesses = <String, Process>{};
   final Set<String> _activeAndroidProcessIds = <String>{};
   final Map<String, bool> _reachedFullDownload = <String, bool>{};
+  final Set<String> _formatRefreshRetried = <String>{};
   int _maxConcurrentDownloads = _defaultMaxConcurrentDownloads;
 
   /// Serializes slot checks and [Process.start] to avoid over-spawning.
@@ -275,10 +284,33 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
       );
       unawaited(_savePlayedState());
     } else {
-      again.status = DownloadStatus.failed;
-      again.errorMessage = stderrBuf.isNotEmpty
+      final String err = stderrBuf.isNotEmpty
           ? stderrBuf.toString().trim()
           : AppStrings.errorProcessFailed;
+      final String lower = err.toLowerCase();
+      final bool formatGone =
+          lower.contains('403') ||
+          lower.contains('forbidden') ||
+          lower.contains('format is not available') ||
+          lower.contains('requested format is not available');
+      if (formatGone && !_formatRefreshRetried.contains(again.id)) {
+        _formatRefreshRetried.add(again.id);
+        AppLogger.w(
+          'Download format unavailable — refreshing catalog and retrying '
+          'id=${again.id}',
+        );
+        try {
+          ref.read(ytdlpServiceProvider).invalidateFormatCache(again.url);
+        } on Object catch (_) {}
+        again.status = DownloadStatus.queued;
+        again.errorMessage = null;
+        again.progress = null;
+        _emit();
+        _startNextQueued();
+        return;
+      }
+      again.status = DownloadStatus.failed;
+      again.errorMessage = err;
       AppLogger.e('Download failed: ${again.title} (exit $code)');
     }
     _emit();
@@ -303,26 +335,83 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
     final String binaryPath = await ref.read(binaryPathProvider.future);
     final String outTemplate = p.join(item.outputPath, '%(title)s.%(ext)s');
     final AppSettings settings = ref.read(settingsProvider).requireValue;
+    final VideoFormat format = item.selectedFormat;
+    final String boundClient =
+        (format.sourceClient != null && format.sourceClient!.trim().isNotEmpty)
+        ? format.sourceClient!.trim()
+        : settings.playerClient.ytDlpValue;
+    final bool needsMerge = format.needsAudioMerge || format.formatId.contains('+');
+
+    // Stale extract, missing binding, or 403/format-unavailable retry.
+    VideoFormat effective = format;
+    final bool forceRefresh = _formatRefreshRetried.contains(item.id);
+    if (forceRefresh ||
+        format.isExtractStale() ||
+        (format.sourceClient == null || format.sourceClient!.isEmpty)) {
+      try {
+        final YtdlpService service = ref.read(ytdlpServiceProvider);
+        service.invalidateFormatCache(item.url);
+        await PlaybackPoTokenService.ensureMinter(rethrowOnError: false);
+        final List<VideoFormat> refreshed = await DownloadFormatCatalog.build(
+          ytdlp: service,
+          url: item.url,
+          mintPoTokens: PlaybackPoTokenService.mint,
+        );
+        VideoFormat? match;
+        for (final VideoFormat f in refreshed) {
+          if (f.formatId == format.formatId) {
+            match = f;
+            break;
+          }
+        }
+        match ??= DownloadFormatCatalog.closest(
+          catalog: refreshed,
+          targetHeight: format.height,
+          audioOnly: format.isAudioOnly,
+        );
+        if (match != null) {
+          effective = match;
+        }
+      } on Object catch (error, stack) {
+        AppLogger.w('download format refresh failed: $error\n$stack');
+      }
+    }
+
+    final String client =
+        (effective.sourceClient != null &&
+            effective.sourceClient!.trim().isNotEmpty)
+        ? effective.sourceClient!.trim()
+        : boundClient;
     final List<String> args = ref
         .read(ytdlpServiceProvider)
         .buildDownloadArgs(
           url: item.url,
-          formatId: item.selectedFormat.formatId,
+          formatId: effective.formatId,
           outputTemplate: outTemplate,
           settings: settings,
+          playerClient: client,
+          poToken: effective.poToken,
+          visitorData: effective.visitorData,
+          mergeOutput: needsMerge || effective.needsAudioMerge,
         );
+
+    AppLogger.i(
+      'download spawn strategy client=$client '
+      'format=${effective.formatId} hasPo=${effective.poToken != null} '
+      'merge=${needsMerge || effective.needsAudioMerge}',
+    );
 
     if (Platform.isAndroid) {
       AppLogger.i(
         'Starting Android download: '
-        'id=${item.id} format=${item.selectedFormat.formatId} '
+        'id=${item.id} format=${effective.formatId} '
         'url=${item.url} output=${item.outputPath}',
       );
       _initProgressListener();
       try {
         final String processId = await YtdlpPlatformChannel.startDownload(
           url: item.url,
-          formatId: item.selectedFormat.formatId,
+          formatId: effective.formatId,
           outputPath: item.outputPath,
           processId: item.id,
           isPlaylist: item.isPlaylist,
@@ -335,7 +424,10 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
               settings.limitDownloadSpeed && settings.maxDownloadSpeedKbps > 0
               ? '${settings.maxDownloadSpeedKbps}K'
               : '',
-          playerClient: settings.playerClient.ytDlpValue,
+          playerClient: client,
+          poToken: effective.poToken,
+          visitorData: effective.visitorData,
+          mergeOutput: needsMerge || effective.needsAudioMerge,
         );
         _activeAndroidProcessIds.add(processId);
         AppLogger.i('Platform channel download started: $processId');
@@ -612,6 +704,10 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
         if (next == null) {
           break;
         }
+        final bool serverHandled = await _tryServerDownload(next);
+        if (serverHandled) {
+          continue;
+        }
         final Process? process = await _beginSpawn(next);
         if (process == null) {
           if (Platform.isAndroid &&
@@ -623,6 +719,165 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
         unawaited(_finishDownloadProcess(next, process));
       }
     });
+  }
+
+  /// Server-primary download; returns true when the job was fully handled
+  /// (completed or failed as restricted). Transport failures return false
+  /// so local yt-dlp can run.
+  Future<bool> _tryServerDownload(DownloadItem item) async {
+    final AppSettings settings =
+        ref.read(settingsProvider).valueOrNull ?? AppSettings.defaults;
+    if (!settings.preferServerDownload || settings.apiBaseUrl.trim().isEmpty) {
+      return false;
+    }
+    final String? videoId = YoutubeUrls.videoId(item.url);
+    if (videoId == null) {
+      return false;
+    }
+    try {
+      item.status = DownloadStatus.downloading;
+      _emit();
+      final DownloadApiRepository downloadRepo =
+          ref.read(downloadApiRepositoryProvider);
+      final String quality = _serverQualityLabel(item);
+      final Map<String, dynamic> enqueued = await downloadRepo.enqueue(
+        videoId: videoId,
+        quality: quality,
+      );
+      final String? jobId = enqueued['jobId']?.toString();
+      if (jobId == null || jobId.isEmpty) {
+        item.status = DownloadStatus.queued;
+        return false;
+      }
+      for (int i = 0; i < 360; i++) {
+        await Future<void>.delayed(const Duration(seconds: 2));
+        final Map<String, dynamic> st = await downloadRepo.status(jobId);
+        final String status = st['status']?.toString() ?? '';
+        final int progress = (st['progress'] as num?)?.toInt() ?? 0;
+        item.progress = DownloadProgress(
+          percent: (progress.clamp(0, 100)) / 100.0,
+          speed: '--',
+          eta: '--',
+          totalSize: '--',
+          isMerging: status == 'running' && progress > 70,
+        );
+        _throttledEmit();
+        if (status == 'completed') {
+          final String? fileUrl = st['fileUrl']?.toString();
+          if (fileUrl != null && fileUrl.isNotEmpty) {
+            await _fetchServerFile(
+              fileUrl: fileUrl,
+              item: item,
+              fileName: st['fileName']?.toString() ?? '$videoId.mp4',
+            );
+          }
+          item.status = DownloadStatus.completed;
+          item.progress = DownloadProgress(
+            percent: 1,
+            speed: '--',
+            eta: '00:00',
+            totalSize: st['fileSize']?.toString() ?? '--',
+            isMerging: false,
+          );
+          _completionController?.add(item);
+          unawaited(
+            ref
+                .read(appDownloadRegistryProvider.notifier)
+                .registerCompleted(item),
+          );
+          _emit();
+          return true;
+        }
+        if (status == 'failed' || status == 'cancelled') {
+          final String code = st['errorCode']?.toString() ?? '';
+          if (code == 'EXTRACTOR_PRIVATE' ||
+              code == 'EXTRACTOR_GEO_BLOCKED' ||
+              code == 'EXTRACTOR_VIDEO_UNAVAILABLE') {
+            item.status = DownloadStatus.failed;
+            item.errorMessage =
+                st['errorMessage']?.toString() ?? 'Download unavailable';
+            _emit();
+            return true;
+          }
+          item.status = DownloadStatus.queued;
+          item.errorMessage = null;
+          _emit();
+          return false;
+        }
+      }
+      item.status = DownloadStatus.queued;
+      return false;
+    } on ApiException catch (e) {
+      AppLogger.w('server download API: ${e.code} ${e.message}');
+      if (!e.allowsLocalFallback) {
+        item.status = DownloadStatus.failed;
+        item.errorMessage = e.message;
+        _emit();
+        return true;
+      }
+      item.status = DownloadStatus.queued;
+      _emit();
+      return false;
+    } on Object catch (e, st) {
+      AppLogger.w('server download failed, local fallback: $e\n$st');
+      item.status = DownloadStatus.queued;
+      _emit();
+      return false;
+    }
+  }
+
+  String _serverQualityLabel(DownloadItem item) {
+    final int? h = item.selectedFormat.height;
+    if (h == null) {
+      return '1080p';
+    }
+    if (h >= 2160) {
+      return '2160p';
+    }
+    if (h >= 1440) {
+      return '1440p';
+    }
+    if (h >= 1080) {
+      return '1080p';
+    }
+    if (h >= 720) {
+      return '720p';
+    }
+    if (h >= 480) {
+      return '480p';
+    }
+    return '360p';
+  }
+
+  Future<void> _fetchServerFile({
+    required String fileUrl,
+    required DownloadItem item,
+    required String fileName,
+  }) async {
+    final InstallationAuthService auth =
+        ref.read(installationAuthProvider);
+    await auth.ensureRegistered();
+    final String? token = await auth.accessToken();
+    final Uri uri = Uri.parse(fileUrl);
+    final HttpClient client = HttpClient();
+    try {
+      final HttpClientRequest req = await client.getUrl(uri);
+      if (token != null) {
+        req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      }
+      final HttpClientResponse res = await req.close();
+      if (res.statusCode >= 400) {
+        throw StateError('file download HTTP ${res.statusCode}');
+      }
+      final String outDir = item.outputPath;
+      await Directory(outDir).create(recursive: true);
+      final File out = File(p.join(outDir, fileName));
+      final IOSink sink = out.openWrite();
+      await res.pipe(sink);
+      await sink.close();
+    } finally {
+      client.close(force: true);
+    }
   }
 
   DownloadItem? _firstSpawnableQueued() {
@@ -828,6 +1083,29 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
               .registerCompleted(item),
         );
       } else {
+        final String lower = errorMsg.toLowerCase();
+        final bool formatGone =
+            lower.contains('403') ||
+            lower.contains('forbidden') ||
+            lower.contains('format is not available') ||
+            lower.contains('requested format is not available');
+        if (formatGone && !_formatRefreshRetried.contains(item.id)) {
+          _formatRefreshRetried.add(item.id);
+          AppLogger.w(
+            'Download format unavailable — refreshing catalog and retrying '
+            'id=${item.id}',
+          );
+          try {
+            ref.read(ytdlpServiceProvider).invalidateFormatCache(item.url);
+          } on Object catch (_) {}
+          item.status = DownloadStatus.queued;
+          item.errorMessage = null;
+          item.progress = null;
+          _reachedFullDownload.remove(processId);
+          _emit();
+          _startNextQueued();
+          return;
+        }
         item.status = DownloadStatus.failed;
         item.errorMessage = errorMsg;
         AppLogger.e('Download failed: ${item.title} — $errorMsg');
@@ -969,6 +1247,14 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
               'formatId': item.selectedFormat.formatId,
               'formatExt': item.selectedFormat.extension,
               'formatLabel': item.selectedFormat.displayLabel,
+              'formatResolution': item.selectedFormat.resolution,
+              'formatSourceClient': item.selectedFormat.sourceClient,
+              'formatPoToken': item.selectedFormat.poToken,
+              'formatVisitorData': item.selectedFormat.visitorData,
+              'formatNeedsMerge': item.selectedFormat.needsAudioMerge,
+              'formatExtractedAtMs':
+                  item.selectedFormat.extractedAt?.millisecondsSinceEpoch,
+              'formatIsAudioOnly': item.selectedFormat.isAudioOnly,
               'outputPath': item.outputPath,
               'status': item.status.name,
               'errorMessage': item.errorMessage,
@@ -1020,6 +1306,18 @@ class DownloadManager extends Notifier<List<DownloadItem>> {
             formatId: map['formatId']?.toString() ?? '',
             extension: map['formatExt']?.toString() ?? '',
             displayLabel: map['formatLabel']?.toString() ?? '',
+            resolution: map['formatResolution']?.toString(),
+            isAudioOnly: (map['formatIsAudioOnly'] as bool?) ?? false,
+            sourceClient: map['formatSourceClient']?.toString(),
+            poToken: map['formatPoToken']?.toString(),
+            visitorData: map['formatVisitorData']?.toString(),
+            needsAudioMerge: (map['formatNeedsMerge'] as bool?) ?? false,
+            extractedAt: () {
+              final int? ms = (map['formatExtractedAtMs'] as num?)?.toInt();
+              return ms == null
+                  ? null
+                  : DateTime.fromMillisecondsSinceEpoch(ms);
+            }(),
           ),
           outputPath: map['outputPath']?.toString() ?? '',
           status: status,

@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/playlist_info.dart';
 import '../models/video_format.dart';
 import '../models/video_info.dart';
+import '../services/download_format_catalog.dart';
+import '../services/playback_po_token.dart';
 import '../services/ytdlp_service.dart';
 import 'binary_path_provider.dart';
 import 'settings_providers.dart';
@@ -37,6 +39,10 @@ final StateProvider<VideoFormat?> selectedFormatProvider =
     StateProvider<VideoFormat?>((Ref ref) => null);
 
 /// Fetches formats for [metadataRequestUrlProvider] when non-empty.
+///
+/// Uses the multi-strategy [DownloadFormatCatalog] (not Settings `android,web`
+/// alone). Settings client is only an optional power-user override when it is
+/// not the stale default preset.
 final formatsProvider = FutureProvider.autoDispose<List<VideoFormat>>((
   Ref ref,
 ) async {
@@ -49,10 +55,15 @@ final formatsProvider = FutureProvider.autoDispose<List<VideoFormat>>((
     return <VideoFormat>[];
   }
   final YtdlpService service = ref.watch(ytdlpServiceProvider);
-  final String client =
-      ref.watch(settingsProvider).valueOrNull?.playerClient.ytDlpValue ??
-      'android,web';
-  return service.fetchFormats(url, playerClient: client);
+  final String? settingsClient =
+      ref.watch(settingsProvider).valueOrNull?.playerClient.ytDlpValue;
+  await PlaybackPoTokenService.ensureMinter(rethrowOnError: false);
+  return DownloadFormatCatalog.build(
+    ytdlp: service,
+    url: url,
+    mintPoTokens: PlaybackPoTokenService.mint,
+    settingsClientOverride: settingsClient,
+  );
 });
 
 /// Fetches [VideoInfo] for the submitted URL when non-empty.
@@ -68,10 +79,8 @@ final videoInfoProvider = FutureProvider.autoDispose<VideoInfo?>((
     return null;
   }
   final YtdlpService service = ref.watch(ytdlpServiceProvider);
-  final String client =
-      ref.watch(settingsProvider).valueOrNull?.playerClient.ytDlpValue ??
-      'android,web';
-  return service.fetchVideoInfo(url, playerClient: client);
+  // Prefer default ladder client for title/thumb — cheap and usually enough.
+  return service.fetchVideoInfo(url, playerClient: 'default');
 });
 
 /// Loads [PlaylistInfo] when the submitted URL is a playlist.

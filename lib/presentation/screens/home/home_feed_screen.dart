@@ -1,4 +1,4 @@
-/// YouTube-like Home: continue watching, followed channels, recommendations.
+/// YouTube-like Home: continue watching, followed channels, infinite recommended.
 library;
 
 import 'package:flutter/material.dart';
@@ -13,6 +13,7 @@ import '../../../data/local/library_store.dart';
 import '../../../data/models/browse_video.dart';
 import '../../../data/providers/app_navigation_providers.dart';
 import '../../../data/providers/browse_providers.dart';
+import '../../../data/providers/feed_providers.dart';
 import '../../../data/providers/library_providers.dart';
 import '../../../data/providers/player_provider.dart';
 import '../../widgets/browse/browse_video_tile.dart';
@@ -29,22 +30,41 @@ class HomeFeedScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
+  final ScrollController _scrollController = ScrollController();
+
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ShareIntentHandler.initialize(ref);
     });
   }
 
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) {
+      return;
+    }
+    final ScrollPosition pos = _scrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 800) {
+      ref.read(homePagedFeedProvider.notifier).loadMore();
+    }
+  }
+
   Future<void> _refresh() async {
-    ref.invalidate(recommendedFeedProvider);
     ref.invalidate(watchHistoryProvider);
     ref.invalidate(searchHistoryProvider);
     ref.invalidate(continueWatchingProvider);
     ref.invalidate(followedFeedProvider);
+    await ref.read(homePagedFeedProvider.notifier).loadInitial();
     await Future.wait(<Future<Object?>>[
-      ref.read(recommendedFeedProvider.future),
       ref.read(continueWatchingProvider.future),
       ref.read(followedFeedProvider.future),
     ]);
@@ -59,27 +79,16 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
     final AsyncValue<List<BrowseVideo>> followed = ref.watch(
       followedFeedProvider,
     );
-    final AsyncValue<List<BrowseVideo>> recommended = ref.watch(
-      recommendedFeedProvider,
-    );
-    final AsyncValue<List<String>> searches = ref.watch(searchHistoryProvider);
-    final AsyncValue<List<WatchHistoryEntry>> history = ref.watch(
-      watchHistoryProvider,
-    );
-
+    final PagedFeedState feed = ref.watch(homePagedFeedProvider);
     final List<WatchHistoryEntry> continueRows =
         continueWatching.valueOrNull ?? const <WatchHistoryEntry>[];
     final List<BrowseVideo> followedRows =
         followed.valueOrNull ?? const <BrowseVideo>[];
-    final List<BrowseVideo> recommendedRows =
-        recommended.valueOrNull ?? const <BrowseVideo>[];
-    final bool noActivity =
-        (searches.valueOrNull?.isEmpty ?? false) &&
-        (history.valueOrNull?.isEmpty ?? false);
+    final List<BrowseVideo> recommendedRows = feed.items;
     final bool showEmptyHome =
         !continueWatching.isLoading &&
         !followed.isLoading &&
-        (noActivity || (!recommended.isLoading && !recommended.hasError)) &&
+        !feed.loadingInitial &&
         continueRows.isEmpty &&
         followedRows.isEmpty &&
         recommendedRows.isEmpty;
@@ -104,100 +113,144 @@ class _HomeFeedScreenState extends ConsumerState<HomeFeedScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: _refresh,
-        child: ListView(
+        child: CustomScrollView(
+          controller: _scrollController,
           physics: const AlwaysScrollableScrollPhysics(),
-          children: <Widget>[
-            continueWatching.maybeWhen(
-              data: (List<WatchHistoryEntry> rows) {
-                if (rows.isEmpty) {
-                  return const SizedBox.shrink();
-                }
-                return _HorizontalSection(
-                  title: AppStrings.continueWatching,
-                  children: rows
-                      .map(
-                        (WatchHistoryEntry e) => Padding(
-                          padding: const EdgeInsets.only(
-                            right: AppDimensions.spaceSm,
+          slivers: <Widget>[
+            SliverToBoxAdapter(
+              child: continueWatching.maybeWhen(
+                data: (List<WatchHistoryEntry> rows) {
+                  if (rows.isEmpty) {
+                    return const SizedBox.shrink();
+                  }
+                  return _HorizontalSection(
+                    title: AppStrings.continueWatching,
+                    children: rows
+                        .map(
+                          (WatchHistoryEntry e) => Padding(
+                            padding: const EdgeInsets.only(
+                              right: AppDimensions.spaceSm,
+                            ),
+                            child: BrowseVideoTile(
+                              video: e.video,
+                              compact: true,
+                              onTap: () => ref
+                                  .read(playerControllerProvider.notifier)
+                                  .play(e.video),
+                              onRemove: () async {
+                                await ref
+                                    .read(libraryActionsProvider)
+                                    .deleteHistory(e.video.id);
+                                if (context.mounted) {
+                                  AppSnackbar.showSuccess(
+                                    context,
+                                    AppStrings.removedFromLibrary,
+                                  );
+                                }
+                              },
+                            ),
                           ),
-                          child: BrowseVideoTile(
-                            video: e.video,
-                            compact: true,
-                            onTap: () => ref
-                                .read(playerControllerProvider.notifier)
-                                .play(e.video),
-                            onRemove: () async {
-                              await ref
-                                  .read(libraryActionsProvider)
-                                  .deleteHistory(e.video.id);
-                              if (context.mounted) {
-                                AppSnackbar.showSuccess(
-                                  context,
-                                  AppStrings.removedFromLibrary,
-                                );
-                              }
-                            },
-                          ),
-                        ),
-                      )
-                      .toList(),
-                );
-              },
-              orElse: () => const SizedBox.shrink(),
+                        )
+                        .toList(),
+                  );
+                },
+                orElse: () => const SizedBox.shrink(),
+              ),
             ),
-            followed.maybeWhen(
-              data: (List<BrowseVideo> videos) {
-                if (videos.isEmpty) {
-                  return const SizedBox.shrink();
-                }
-                return _VerticalSection(
-                  title: AppStrings.fromYourChannels,
-                  videos: videos,
-                );
-              },
-              orElse: () => const SizedBox.shrink(),
+            SliverToBoxAdapter(
+              child: followed.maybeWhen(
+                data: (List<BrowseVideo> videos) {
+                  if (videos.isEmpty) {
+                    return const SizedBox.shrink();
+                  }
+                  return _VerticalSection(
+                    title: AppStrings.fromYourChannels,
+                    videos: videos,
+                  );
+                },
+                orElse: () => const SizedBox.shrink(),
+              ),
             ),
-            recommended.when(
-              loading: () {
-                if (noActivity) {
-                  return const SizedBox.shrink();
-                }
-                return const Padding(
+            if (feed.loadingInitial && recommendedRows.isEmpty)
+              const SliverToBoxAdapter(
+                child: Padding(
                   padding: EdgeInsets.all(48),
                   child: Center(child: CircularProgressIndicator()),
-                );
-              },
-              error: (Object error, StackTrace stack) => Padding(
-                padding: const EdgeInsets.all(AppDimensions.paddingLg),
-                child: Column(
-                  children: <Widget>[
-                    const Text(
-                      AppStrings.homeFeedEmpty,
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: AppDimensions.spaceMd),
-                    FilledButton(
-                      onPressed: () => ref.invalidate(recommendedFeedProvider),
-                      child: const Text(AppStrings.retryButton),
-                    ),
-                  ],
+                ),
+              )
+            else if (feed.error != null && recommendedRows.isEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.all(AppDimensions.paddingLg),
+                  child: Column(
+                    children: <Widget>[
+                      const Text(
+                        AppStrings.homeFeedEmpty,
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: AppDimensions.spaceMd),
+                      FilledButton(
+                        onPressed: () => ref
+                            .read(homePagedFeedProvider.notifier)
+                            .loadInitial(),
+                        child: const Text(AppStrings.retryButton),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else if (recommendedRows.isNotEmpty) ...<Widget>[
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppDimensions.paddingMd,
+                    AppDimensions.spaceLg,
+                    AppDimensions.paddingMd,
+                    AppDimensions.spaceSm,
+                  ),
+                  child: Text(
+                    AppStrings.recommendedForYou,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                 ),
               ),
-              data: (List<BrowseVideo> videos) {
-                if (videos.isEmpty) {
-                  return const SizedBox.shrink();
-                }
-                return _VerticalSection(
-                  title: AppStrings.recommendedForYou,
-                  videos: videos,
-                );
-              },
-            ),
-            if (showEmptyHome)
-              _EmptyHome(
-                onSearch: () => ref.read(tabIndexProvider.notifier).goTo(1),
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (BuildContext context, int index) {
+                    final BrowseVideo v = recommendedRows[index];
+                    return BrowseVideoTile(
+                      video: v,
+                      onTap: () =>
+                          ref.read(playerControllerProvider.notifier).play(v),
+                    );
+                  },
+                  childCount: recommendedRows.length,
+                ),
               ),
-            const SizedBox(height: 88),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  child: Center(
+                    child: feed.loadingMore
+                        ? const CircularProgressIndicator()
+                        : feed.exhausted
+                            ? Text(
+                                AppStrings.homeFeedEnd,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              )
+                            : const SizedBox.shrink(),
+                  ),
+                ),
+              ),
+            ],
+            if (showEmptyHome)
+              SliverToBoxAdapter(
+                child: _EmptyHome(
+                  onSearch: () =>
+                      ref.read(tabIndexProvider.notifier).goTo(AppTabs.search),
+                ),
+              ),
+            const SliverToBoxAdapter(child: SizedBox(height: 88)),
           ],
         ),
       ),

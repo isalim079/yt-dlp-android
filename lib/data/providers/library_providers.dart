@@ -5,8 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../local/library_store.dart';
 import '../models/browse_video.dart';
-import '../services/browse_service.dart';
-import 'ytdlp_providers.dart';
+import 'feed_providers.dart';
 
 /// Section shown inside the Library tab.
 enum LibrarySection { history, playlists, channels, downloads }
@@ -52,24 +51,12 @@ final FutureProvider<List<String>> searchHistoryProvider =
       return ref.watch(libraryStoreProvider).recentSearches();
     });
 
-/// Home recommendations from local search + watch history.
+/// Home recommendations — prefer [homePagedFeedProvider] for infinite scroll.
 ///
-/// Empty until the user has searched or watched; then `ytsearch` on those seeds.
-final FutureProvider<List<BrowseVideo>> recommendedFeedProvider =
-    FutureProvider<List<BrowseVideo>>((Ref ref) async {
-      final List<String> searches = await ref.watch(
-        searchHistoryProvider.future,
-      );
-      final List<WatchHistoryEntry> history = await ref.watch(
-        watchHistoryProvider.future,
-      );
-      if (searches.isEmpty && history.isEmpty) {
-        return const <BrowseVideo>[];
-      }
-      return BrowseService(ytdlp: ref.watch(ytdlpServiceProvider)).recommend(
-        searchQueries: searches,
-        watched: history.map((WatchHistoryEntry entry) => entry.video).toList(),
-      );
+/// Kept for tests / simple one-shot reads of the current paged Home items.
+final Provider<List<BrowseVideo>> recommendedFeedProvider =
+    Provider<List<BrowseVideo>>((Ref ref) {
+      return ref.watch(homePagedFeedProvider).items;
     });
 
 /// Convenience mutations that invalidate lists.
@@ -86,7 +73,7 @@ class LibraryActions {
     await _store.upsertHistory(video: video, lastPositionMs: positionMs);
     _ref.invalidate(watchHistoryProvider);
     _ref.invalidate(continueWatchingProvider);
-    _ref.invalidate(recommendedFeedProvider);
+    _ref.invalidate(homePagedFeedProvider);
   }
 
   /// Clears history.
@@ -94,7 +81,7 @@ class LibraryActions {
     await _store.clearHistory();
     _ref.invalidate(watchHistoryProvider);
     _ref.invalidate(continueWatchingProvider);
-    _ref.invalidate(recommendedFeedProvider);
+    _ref.invalidate(homePagedFeedProvider);
   }
 
   /// Removes one video from watch history. Does not delete files.
@@ -102,7 +89,7 @@ class LibraryActions {
     await _store.deleteHistory(videoId);
     _ref.invalidate(watchHistoryProvider);
     _ref.invalidate(continueWatchingProvider);
-    _ref.invalidate(recommendedFeedProvider);
+    _ref.invalidate(homePagedFeedProvider);
   }
 
   /// Creates a playlist.
@@ -146,14 +133,14 @@ class LibraryActions {
   Future<void> saveSearch(String query) async {
     await _store.addSearch(query);
     _ref.invalidate(searchHistoryProvider);
-    _ref.invalidate(recommendedFeedProvider);
+    _ref.invalidate(homePagedFeedProvider);
   }
 
   /// Removes one saved search keyword.
   Future<void> deleteSearch(String query) async {
     await _store.deleteSearch(query);
     _ref.invalidate(searchHistoryProvider);
-    _ref.invalidate(recommendedFeedProvider);
+    _ref.invalidate(homePagedFeedProvider);
   }
 }
 

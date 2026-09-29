@@ -32,6 +32,11 @@ class SettingsRepository {
   static const String _playbackQualityKey = '${_keyPrefix}playback_quality';
   static const String _playerClientKey = '${_keyPrefix}player_client';
   static const String _backgroundPlaybackKey = '${_keyPrefix}background_playback';
+  static const String _apiBaseUrlKey = '${_keyPrefix}api_base_url';
+  static const String _preferServerPlaybackKey =
+      '${_keyPrefix}prefer_server_playback';
+  static const String _preferServerDownloadKey =
+      '${_keyPrefix}prefer_server_download';
 
   /// Loads all settings from SharedPreferences.
   ///
@@ -99,6 +104,14 @@ class SettingsRepository {
       backgroundPlayback:
           prefs.getBool(_backgroundPlaybackKey) ??
           AppSettings.defaults.backgroundPlayback,
+      apiBaseUrl:
+          prefs.getString(_apiBaseUrlKey) ?? AppSettings.defaults.apiBaseUrl,
+      preferServerPlayback:
+          prefs.getBool(_preferServerPlaybackKey) ??
+          AppSettings.defaults.preferServerPlayback,
+      preferServerDownload:
+          prefs.getBool(_preferServerDownloadKey) ??
+          AppSettings.defaults.preferServerDownload,
     );
   }
 
@@ -129,6 +142,15 @@ class SettingsRepository {
     await prefs.setString(_playbackQualityKey, settings.playbackQuality.name);
     await prefs.setString(_playerClientKey, settings.playerClient.name);
     await prefs.setBool(_backgroundPlaybackKey, settings.backgroundPlayback);
+    await prefs.setString(_apiBaseUrlKey, settings.apiBaseUrl);
+    await prefs.setBool(
+      _preferServerPlaybackKey,
+      settings.preferServerPlayback,
+    );
+    await prefs.setBool(
+      _preferServerDownloadKey,
+      settings.preferServerDownload,
+    );
   }
 
   /// Saves one settings field using its full preference [key].
