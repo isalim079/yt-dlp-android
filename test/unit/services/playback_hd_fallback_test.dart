@@ -241,10 +241,8 @@ void main() {
 class _FakeYtdlp extends YtdlpService {
   _FakeYtdlp(
     this._jsonByClient, {
-    this.failClients = const <String>{},
     this.emptyClients = const <String>{},
-    this.failMessage = 'client failed',
-  }) : super(binaryPath: '/mock/yt-dlp');
+  }) : failClients = const <String>{}, failMessage = 'client failed', super(binaryPath: '/mock/yt-dlp');
 
   final Map<String, String> _jsonByClient;
   final Set<String> failClients;
